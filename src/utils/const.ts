@@ -7,3 +7,7 @@ export const SECS_PER_DAY = 86400;
 export const THREE_MONTH_BLOCK_RANGE = 1296000;
 
 export const DAYS_PER_WEEK = 7;
+
+export const CRON_DURATION = {
+  EVERY_3_MINUTES: '0 */3 * * * *',
+};

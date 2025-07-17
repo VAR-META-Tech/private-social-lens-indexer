@@ -1,15 +1,22 @@
-import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EventLog, ethers } from 'ethers';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
+import { Cron } from '@nestjs/schedule';
 import { Web3Service } from '../../web3/web3.service';
 import { AllConfigType } from '../../config/config.type';
 import { IWeb3Config } from '../../config/app-config.type';
 import { UnstakingEventsService } from '../../unstaking-events/unstaking-events.service';
 import { formatEtherNumber, formatTimestamp } from '../../utils/helper';
-import { MILLI_SECS_PER_SEC, ONE_MONTH_BLOCK_RANGE } from '../../utils/const';
+import {
+  CRON_DURATION,
+  MILLI_SECS_PER_SEC,
+  ONE_MONTH_BLOCK_RANGE,
+} from '../../utils/const';
 import { BlockRange, IBatch } from '../../utils/types/common.type';
+import { CheckpointsService } from '../../checkpoints/checkpoints.service';
+import { QueryType } from '../../utils/common.type';
 
 @Injectable()
 export class UnstakingFetchService implements OnModuleInit {
@@ -17,12 +24,14 @@ export class UnstakingFetchService implements OnModuleInit {
   private newestBlock: number = 0;
   private web3Config: IWeb3Config | undefined;
   private provider: ethers.Provider;
+  private hasInitDone: boolean = false;
 
   constructor(
     private readonly web3Service: Web3Service,
     private readonly configService: ConfigService<AllConfigType>,
     private readonly unstakingEventsService: UnstakingEventsService,
-    @InjectQueue('blockchain-events') private readonly queue: Queue,
+    private readonly checkpointsService: CheckpointsService,
+    @InjectQueue('blockchain-index-event') private readonly queue: Queue,
   ) {
     this.web3Config = this.configService.get('app.web3Config', {
       infer: true,
@@ -30,45 +39,58 @@ export class UnstakingFetchService implements OnModuleInit {
     this.provider = this.web3Service.getProvider();
   }
 
-  async onModuleInit(): Promise<void> {
-    try {
-      this.logger.log('Initializing UnstakingFetchService...');
+  async onModuleInit() {
+    await this.handleQueryBlocks();
+  }
 
-      this.newestBlock = await this.web3Service.getCurrentBlock();
-      this.logger.log(`Current block: ${this.newestBlock}`);
+  @Cron(CRON_DURATION.EVERY_3_MINUTES)
+  async handleCron() {
+    if (!this.hasInitDone) {
+      return;
+    }
+    await this.handleQueryBlocks();
+  }
 
-      const initDataDuration = this.web3Config?.initDataDuration || 3;
-      let fromBlock =
-        this.newestBlock - initDataDuration * ONE_MONTH_BLOCK_RANGE;
+  updateHasInitDone(isDone: boolean) {
+    this.hasInitDone = isDone;
+  }
 
-      // Ensure fromBlock is not negative
-      fromBlock = Math.max(fromBlock, 0);
+  async handleQueryBlocks() {
+    const queryBlocks = {
+      fromBlock: 0,
+      toBlock: 0,
+    };
 
-      const latestUnstake =
-        await this.unstakingEventsService.findLatestUnstake();
-
-      if (latestUnstake) {
-        const latestBlockNumber = Number(latestUnstake.block_number);
-        if (!isNaN(latestBlockNumber) && latestBlockNumber >= 0) {
-          fromBlock = latestBlockNumber + 1;
-        }
-      }
-
-      this.logger.log(
-        `Fetching from block ${fromBlock} to ${this.newestBlock}`,
+    this.newestBlock = await this.web3Service.getCurrentBlock();
+    this.logger.log(`Newest on chain block: ${this.newestBlock}`);
+    const latestCheckpoint = await this.checkpointsService.findLatestCheckpoint(
+      QueryType.FETCH_UNSTAKING,
+    );
+    if (!latestCheckpoint) {
+      this.logger.warn(
+        'No latest unstake checkpoint found, start fetching from genesis`',
       );
 
-      // Add fetch job to queue instead of direct execution
-      await this.queue.add('fetch-unstaking', {
-        type: 'fetch-unstaking',
-        fromBlock,
-        toBlock: this.newestBlock,
-      });
+      const fetchFromMonthAgo = this.web3Config?.initDataDuration || 3; //month
+      let fromBlock =
+        this.newestBlock - fetchFromMonthAgo * ONE_MONTH_BLOCK_RANGE;
+      fromBlock = Math.max(fromBlock, 0);
 
-      this.logger.log('Unstaking fetch job queued successfully');
-    } catch (error) {
-      throw error;
+      queryBlocks.fromBlock = fromBlock;
+      queryBlocks.toBlock = this.newestBlock;
+    } else {
+      const latestBlockNumber = Number(latestCheckpoint.blockNumber);
+      if (!isNaN(latestBlockNumber) && latestBlockNumber >= 0) {
+        queryBlocks.fromBlock = latestBlockNumber + 1;
+      }
+      queryBlocks.toBlock = this.newestBlock;
     }
+
+    await this.queue.add('fetch-unstaking', {
+      type: 'fetch-unstaking',
+      fromBlock: queryBlocks.fromBlock,
+      toBlock: queryBlocks.toBlock,
+    });
   }
 
   async fetchUnstakingEvents(
@@ -86,7 +108,15 @@ export class UnstakingFetchService implements OnModuleInit {
       const allEvents = await this.queryMonthlyRanges(monthlyRanges);
 
       this.logger.log(`Successfully fetched ${allEvents.length} events`);
+      await this.checkpointsService.saveLatestCheckpoint(
+        toBlock,
+        QueryType.FETCH_UNSTAKING,
+      );
       await this.logEvents(allEvents);
+
+      if (!this.hasInitDone) {
+        this.updateHasInitDone(true);
+      }
     } catch (error) {
       throw error;
     }
@@ -205,11 +235,11 @@ export class UnstakingFetchService implements OnModuleInit {
     const unstakeTime = block?.timestamp || 0;
 
     const unstakingEvent = {
-      tx_hash: event.transactionHash,
-      wallet_address: walletAddress,
+      txHash: event.transactionHash,
+      walletAddress: walletAddress,
       amount: String(formatEtherNumber(amount)),
-      block_number: String(event.blockNumber),
-      unstake_time: formatTimestamp(BigInt(unstakeTime)),
+      blockNumber: String(event.blockNumber),
+      unstakeTime: formatTimestamp(BigInt(unstakeTime)),
     };
 
     await this.unstakingEventsService.create(unstakingEvent);

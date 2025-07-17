@@ -7,19 +7,19 @@ export class UnstakingEvent {
   id: string;
 
   @ApiProperty()
-  tx_hash: string;
+  txHash: string;
 
   @ApiProperty()
-  wallet_address: string;
+  walletAddress: string;
 
   @ApiProperty()
   amount: string;
 
   @ApiProperty()
-  block_number: string;
+  blockNumber: string;
 
   @ApiProperty()
-  unstake_time: string;
+  unstakeTime: string;
 
   @ApiProperty()
   createdAt: Date;

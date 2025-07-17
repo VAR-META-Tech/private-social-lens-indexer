@@ -7,10 +7,10 @@ export class StakingEvent {
   id: string;
 
   @ApiProperty()
-  tx_hash: string;
+  txHash: string;
 
   @ApiProperty()
-  wallet_address: string;
+  walletAddress: string;
 
   @ApiProperty()
   amount: string;
@@ -19,16 +19,16 @@ export class StakingEvent {
   duration: string;
 
   @ApiProperty()
-  start_time: string;
+  startTime: string;
 
   @ApiProperty()
-  has_withdrawal: boolean;
+  hasWithdrawal: boolean;
 
   @ApiProperty()
-  withdrawal_time: string | null;
+  withdrawalTime: string | null;
 
   @ApiProperty()
-  block_number: string;
+  blockNumber: string;
 
   @ApiProperty()
   createdAt: Date;

@@ -23,6 +23,7 @@ import { MailerModule } from './mailer/mailer.module';
 import { WorkerModule } from './workers/worker.module';
 import { StakingEventsModule } from './staking-events/staking-events.module';
 import { UnstakingEventsModule } from './unstaking-events/unstaking-events.module';
+import { ScheduleModule } from '@nestjs/schedule';
 
 const infrastructureDatabaseModule = TypeOrmModule.forRootAsync({
   useClass: TypeOrmConfigService,
@@ -34,6 +35,7 @@ const infrastructureDatabaseModule = TypeOrmModule.forRootAsync({
 @Module({
   imports: [
     WorkerModule,
+    ScheduleModule.forRoot(),
     ConfigModule.forRoot({
       isGlobal: true,
       load: [

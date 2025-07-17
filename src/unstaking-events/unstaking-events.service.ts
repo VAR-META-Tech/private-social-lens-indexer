@@ -31,7 +31,7 @@ export class UnstakingEventsService {
       const result = await this.dataSource
         .createQueryBuilder(UnstakingEventEntity, 'unstakingEvents')
         .where(
-          'unstakingEvents.unstake_time >= :startDate AND unstakingEvents.unstake_time <= :endDate',
+          'unstakingEvents.unstakeTime >= :startDate AND unstakingEvents.unstakeTime <= :endDate',
           {
             startDate: query.startDate,
             endDate: query.endDate,
@@ -66,17 +66,17 @@ export class UnstakingEventsService {
       const result = await this.dataSource
         .createQueryBuilder(UnstakingEventEntity, 'unstakingEvents')
         .where(
-          'unstakingEvents.unstake_time >= :startDate AND unstakingEvents.unstake_time <= :endDate',
+          'unstakingEvents.unstakeTime >= :startDate AND unstakingEvents.unstakeTime <= :endDate',
           {
             startDate: query.startDate,
             endDate: query.endDate,
           },
         )
         .select([
-          'unstakingEvents.wallet_address as wallet_address',
+          'unstakingEvents.walletAddress as wallet_address',
           'SUM(CAST(unstakingEvents.amount AS DECIMAL)) as unstake_amount',
         ])
-        .groupBy('unstakingEvents.wallet_address')
+        .groupBy('unstakingEvents.walletAddress')
         .orderBy('unstake_amount', 'DESC')
         .limit(5)
         .getRawMany();
@@ -103,7 +103,7 @@ export class UnstakingEventsService {
       const result = await this.dataSource
         .createQueryBuilder(UnstakingEventEntity, 'unstakingEvents')
         .where(
-          'unstakingEvents.unstake_time >= :startDate AND unstakingEvents.unstake_time <= :endDate',
+          'unstakingEvents.unstakeTime >= :startDate AND unstakingEvents.unstakeTime <= :endDate',
           {
             startDate: query.startDate,
             endDate: query.endDate,
@@ -111,10 +111,10 @@ export class UnstakingEventsService {
         )
         .select([
           'SUM(CAST(unstakingEvents.amount AS DECIMAL)) as unstakeamount',
-          "DATE(to_timestamp(unstakingEvents.unstake_time / 1000) AT TIME ZONE 'UTC') as date",
+          "DATE(to_timestamp(unstakingEvents.unstakeTime / 1000) AT TIME ZONE 'UTC') as date",
         ])
         .groupBy(
-          "DATE(to_timestamp(unstakingEvents.unstake_time / 1000) AT TIME ZONE 'UTC')",
+          "DATE(to_timestamp(unstakingEvents.unstakeTime / 1000) AT TIME ZONE 'UTC')",
         )
         .orderBy('date', 'ASC')
         .getRawMany();
@@ -287,7 +287,7 @@ export class UnstakingEventsService {
 
       if (result) {
         this.logger.log(
-          `Found latest unstake: ${result.id} at block ${result.block_number}`,
+          `Found latest unstake: ${result.id} at block ${result.blockNumber}`,
         );
       } else {
         this.logger.log('No unstaking events found');

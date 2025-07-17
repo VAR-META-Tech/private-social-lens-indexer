@@ -15,19 +15,19 @@ export class UnstakingEventEntity extends EntityRelationalHelper {
   id: string;
 
   @Column()
-  tx_hash: string;
+  txHash: string;
 
   @Column()
-  wallet_address: string;
+  walletAddress: string;
 
   @Column({ type: 'numeric' })
   amount: string;
 
   @Column({ type: 'numeric' })
-  block_number: string;
+  blockNumber: string;
 
   @Column({ type: 'numeric' })
-  unstake_time: string;
+  unstakeTime: string;
 
   @CreateDateColumn()
   createdAt: Date;

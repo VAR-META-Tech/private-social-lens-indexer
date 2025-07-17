@@ -5,11 +5,11 @@ export class UnstakingEventMapper {
   static toDomain(raw: UnstakingEventEntity): UnstakingEvent {
     const domainEntity = new UnstakingEvent();
     domainEntity.id = raw.id;
-    domainEntity.tx_hash = raw.tx_hash;
-    domainEntity.wallet_address = raw.wallet_address;
+    domainEntity.txHash = raw.txHash;
+    domainEntity.walletAddress = raw.walletAddress;
     domainEntity.amount = raw.amount;
-    domainEntity.block_number = raw.block_number;
-    domainEntity.unstake_time = raw.unstake_time;
+    domainEntity.blockNumber = raw.blockNumber;
+    domainEntity.unstakeTime = raw.unstakeTime;
     domainEntity.createdAt = raw.createdAt;
     domainEntity.updatedAt = raw.updatedAt;
 
@@ -21,11 +21,11 @@ export class UnstakingEventMapper {
     if (domainEntity.id) {
       persistenceEntity.id = domainEntity.id;
     }
-    persistenceEntity.tx_hash = domainEntity.tx_hash;
-    persistenceEntity.wallet_address = domainEntity.wallet_address;
+    persistenceEntity.txHash = domainEntity.txHash;
+    persistenceEntity.walletAddress = domainEntity.walletAddress;
     persistenceEntity.amount = domainEntity.amount;
-    persistenceEntity.block_number = domainEntity.block_number;
-    persistenceEntity.unstake_time = domainEntity.unstake_time;
+    persistenceEntity.blockNumber = domainEntity.blockNumber;
+    persistenceEntity.unstakeTime = domainEntity.unstakeTime;
     persistenceEntity.createdAt = domainEntity.createdAt;
     persistenceEntity.updatedAt = domainEntity.updatedAt;
 

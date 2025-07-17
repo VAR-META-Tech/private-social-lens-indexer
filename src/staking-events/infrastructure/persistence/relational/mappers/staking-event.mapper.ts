@@ -7,14 +7,14 @@ export class StakingEventMapper {
     domainEntity.id = raw.id;
     domainEntity.createdAt = raw.createdAt;
     domainEntity.updatedAt = raw.updatedAt;
-    domainEntity.tx_hash = raw.tx_hash;
-    domainEntity.wallet_address = raw.wallet_address;
+    domainEntity.txHash = raw.txHash;
+    domainEntity.walletAddress = raw.walletAddress;
     domainEntity.amount = raw.amount;
     domainEntity.duration = raw.duration;
-    domainEntity.start_time = raw.start_time;
-    domainEntity.block_number = raw.block_number;
-    domainEntity.has_withdrawal = raw.has_withdrawal;
-    domainEntity.withdrawal_time = raw.withdrawal_time;
+    domainEntity.startTime = raw.startTime;
+    domainEntity.blockNumber = raw.blockNumber;
+    domainEntity.hasWithdrawal = raw.hasWithdrawal;
+    domainEntity.withdrawalTime = raw.withdrawalTime;
 
     return domainEntity;
   }
@@ -26,14 +26,14 @@ export class StakingEventMapper {
     }
     persistenceEntity.createdAt = domainEntity.createdAt;
     persistenceEntity.updatedAt = domainEntity.updatedAt;
-    persistenceEntity.tx_hash = domainEntity.tx_hash;
-    persistenceEntity.wallet_address = domainEntity.wallet_address;
+    persistenceEntity.txHash = domainEntity.txHash;
+    persistenceEntity.walletAddress = domainEntity.walletAddress;
     persistenceEntity.amount = domainEntity.amount;
     persistenceEntity.duration = domainEntity.duration;
-    persistenceEntity.start_time = domainEntity.start_time;
-    persistenceEntity.block_number = domainEntity.block_number;
-    persistenceEntity.has_withdrawal = domainEntity.has_withdrawal;
-    persistenceEntity.withdrawal_time = domainEntity.withdrawal_time;
+    persistenceEntity.startTime = domainEntity.startTime;
+    persistenceEntity.blockNumber = domainEntity.blockNumber;
+    persistenceEntity.hasWithdrawal = domainEntity.hasWithdrawal;
+    persistenceEntity.withdrawalTime = domainEntity.withdrawalTime;
 
     return persistenceEntity;
   }

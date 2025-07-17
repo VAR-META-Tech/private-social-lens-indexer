@@ -2,10 +2,10 @@ import { ApiProperty } from '@nestjs/swagger';
 
 export class CreatestakingEventDto {
   @ApiProperty({ required: true })
-  tx_hash: string;
+  txHash: string;
 
   @ApiProperty({ required: true })
-  wallet_address: string;
+  walletAddress: string;
 
   @ApiProperty({ required: true })
   amount: string;
@@ -14,14 +14,14 @@ export class CreatestakingEventDto {
   duration: string;
 
   @ApiProperty({ required: true })
-  start_time: string;
+  startTime: string;
 
   @ApiProperty({ required: true })
-  block_number: string;
+  blockNumber: string;
 
   @ApiProperty({ required: true })
-  has_withdrawal: boolean;
+  hasWithdrawal: boolean;
 
   @ApiProperty({ required: false })
-  withdrawal_time: string | null;
+  withdrawalTime: string | null;
 }

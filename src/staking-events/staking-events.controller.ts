@@ -5,7 +5,7 @@ import { StakingEvent } from './domain/staking-event';
 import { InfinityPaginationResponse } from '../utils/dto/infinity-pagination-response.dto';
 import { GetStakeInfoDto } from './dto/get-stake-info.dto';
 
-@ApiTags('Stakingevents')
+@ApiTags('Staking Events')
 @ApiBearerAuth()
 @Controller({
   path: 'staking-events',

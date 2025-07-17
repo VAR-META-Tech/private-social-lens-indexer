@@ -40,7 +40,7 @@ export class StakingEventsRelationalRepository
 
   async findLatestStake(): Promise<StakingEvent | null> {
     const entities = await this.stakingEventsRepository.find({
-      order: { block_number: 'DESC' },
+      order: { blockNumber: 'DESC' },
     });
 
     return entities.length > 0
@@ -53,7 +53,7 @@ export class StakingEventsRelationalRepository
     walletAddress: string,
   ): Promise<StakingEvent | null> {
     const entities = await this.stakingEventsRepository.find({
-      where: { wallet_address: walletAddress },
+      where: { walletAddress: walletAddress },
     });
 
     const entity = entities.find((_entity, index) => index === stakeIndex);

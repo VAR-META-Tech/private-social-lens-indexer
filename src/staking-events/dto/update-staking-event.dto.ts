@@ -7,9 +7,9 @@ import { IsBoolean, IsOptional, IsString } from 'class-validator';
 export class UpdateStakingEventDto extends PartialType(CreatestakingEventDto) {
   @IsBoolean()
   @IsOptional()
-  has_withdrawal?: boolean;
+  hasWithdrawal?: boolean;
 
   @IsString()
   @IsOptional()
-  withdrawal_time?: string | null;
+  withdrawalTime?: string | null;
 }

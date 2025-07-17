@@ -38,7 +38,7 @@ export class StakingEventsService {
       const result = await this.dataSource
         .createQueryBuilder(StakingEventEntity, 'stakingEvents')
         .where(
-          'stakingEvents.start_time >= :startDate AND stakingEvents.start_time <= :endDate',
+          'stakingEvents.startTime >= :startDate AND stakingEvents.startTime <= :endDate',
           {
             startDate: query.startDate,
             endDate: query.endDate,
@@ -88,11 +88,11 @@ export class StakingEventsService {
         `Token flow info for period ${startDate}-${endDate}: netFlow=${netFlow.toString()}, dailyNetFlow=${dailyNetFlow.toString()}, weeklyNetFlow=${weeklyNetFlow.toString()}`,
       );
       return {
-        totalStakeAmount,
-        totalUnstakeAmount,
-        netFlow: netFlow.toString(),
-        dailyNetFlow: dailyNetFlow.toString(),
-        weeklyNetFlow: weeklyNetFlow.toString(),
+        totalStakeAmount: String(totalStakeAmount),
+        totalUnstakeAmount: String(totalUnstakeAmount),
+        netFlow: String(netFlow),
+        dailyNetFlow: String(dailyNetFlow),
+        weeklyNetFlow: String(weeklyNetFlow),
       };
     } catch (error) {
       this.logger.error('Failed to get token flow info', error);
@@ -111,17 +111,17 @@ export class StakingEventsService {
       const result = await this.dataSource
         .createQueryBuilder(StakingEventEntity, 'stakingEvents')
         .where(
-          'stakingEvents.start_time >= :startDate AND stakingEvents.start_time <= :endDate',
+          'stakingEvents.startTime >= :startDate AND stakingEvents.startTime <= :endDate',
           {
             startDate,
             endDate,
           },
         )
         .select([
-          'stakingEvents.wallet_address as wallet_address',
+          'stakingEvents.walletAddress as wallet_address',
           'SUM(CAST(stakingEvents.amount AS DECIMAL)) as stake_amount',
         ])
-        .groupBy('stakingEvents.wallet_address')
+        .groupBy('stakingEvents.walletAddress')
         .orderBy('stake_amount', 'DESC')
         .limit(5)
         .getRawMany();
@@ -144,18 +144,18 @@ export class StakingEventsService {
       const result = await this.dataSource
         .createQueryBuilder(StakingEventEntity, 'stakingEvents')
         .where(
-          'stakingEvents.start_time >= :startDate AND stakingEvents.start_time <= :endDate',
+          'stakingEvents.startTime >= :startDate AND stakingEvents.startTime <= :endDate',
           {
             startDate,
             endDate,
           },
         )
-        .andWhere('stakingEvents.has_withdrawal = true')
-        .andWhere('stakingEvents.withdrawal_time > stakingEvents.start_time')
+        .andWhere('stakingEvents.hasWithdrawal = true')
+        .andWhere('stakingEvents.withdrawalTime > stakingEvents.startTime')
         .setParameter('secondsInDay', SECS_PER_DAY)
         .setParameter('milliPerSec', MILLI_SECS_PER_SEC)
         .select(
-          '(SUM(stakingEvents.withdrawal_time / CAST(:milliPerSec AS NUMERIC)) - SUM(stakingEvents.start_time / CAST(:milliPerSec AS NUMERIC))) / CAST(:secondsInDay AS NUMERIC) as average_hold_duration_days',
+          '(SUM(stakingEvents.withdrawalTime / CAST(:milliPerSec AS NUMERIC)) - SUM(stakingEvents.startTime / CAST(:milliPerSec AS NUMERIC))) / CAST(:secondsInDay AS NUMERIC) as average_hold_duration_days',
         )
         .getRawOne();
       this.logger.log(
@@ -181,7 +181,7 @@ export class StakingEventsService {
       const result = await this.dataSource
         .createQueryBuilder(StakingEventEntity, 'stakingEvents')
         .where(
-          'stakingEvents.start_time >= :startDate AND stakingEvents.start_time <= :endDate',
+          'stakingEvents.startTime >= :startDate AND stakingEvents.startTime <= :endDate',
           {
             startDate,
             endDate,
@@ -189,10 +189,10 @@ export class StakingEventsService {
         )
         .select([
           'SUM(CAST(stakingEvents.amount AS DECIMAL)) as stakeamount',
-          "DATE(to_timestamp(stakingEvents.start_time / 1000) AT TIME ZONE 'UTC') as date",
+          "DATE(to_timestamp(stakingEvents.startTime / 1000) AT TIME ZONE 'UTC') as date",
         ])
         .groupBy(
-          "DATE(to_timestamp(stakingEvents.start_time / 1000) AT TIME ZONE 'UTC')",
+          "DATE(to_timestamp(stakingEvents.startTime / 1000) AT TIME ZONE 'UTC')",
         )
         .orderBy('date', 'ASC')
         .getRawMany();

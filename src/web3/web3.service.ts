@@ -105,4 +105,23 @@ export class Web3Service {
       throw error;
     }
   }
+
+  async fetchReqReward(fromBlock: number, toBlock: number) {
+    if (this.surpassMaxQueryRange(fromBlock, toBlock)) {
+      throw new Error('Query range is too large');
+    }
+
+    try {
+      const events = await this.getDlpContract().queryFilter(
+        this.getDlpContract().filters.RewardRequested(),
+        fromBlock,
+        toBlock,
+      );
+
+      return events;
+    } catch (error) {
+      console.error('Error fetching req reward events:', error);
+      throw error;
+    }
+  }
 }

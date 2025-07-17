@@ -86,7 +86,7 @@ export class UnstakingEventRelationalRepository
 
   async findLatestUnstake(): Promise<UnstakingEvent | null> {
     const entities = await this.unstakingEventsRepository.find({
-      order: { block_number: 'DESC' },
+      order: { blockNumber: 'DESC' },
     });
 
     return entities.length > 0

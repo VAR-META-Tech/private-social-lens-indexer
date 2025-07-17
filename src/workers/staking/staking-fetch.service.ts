@@ -1,4 +1,4 @@
-import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { EventLog, ethers } from 'ethers';
 import { InjectQueue } from '@nestjs/bullmq';
@@ -12,8 +12,15 @@ import { Web3Service } from '../../web3/web3.service';
 import { AllConfigType } from '../../config/config.type';
 import { IWeb3Config } from '../../config/app-config.type';
 import { StakingEventsService } from '../../staking-events/staking-events.service';
-import { MILLI_SECS_PER_SEC, ONE_MONTH_BLOCK_RANGE } from '../../utils/const';
+import {
+  CRON_DURATION,
+  MILLI_SECS_PER_SEC,
+  ONE_MONTH_BLOCK_RANGE,
+} from '../../utils/const';
 import { BlockRange, IBatch } from '../../utils/types/common.type';
+import { Cron } from '@nestjs/schedule';
+import { CheckpointsService } from '../../checkpoints/checkpoints.service';
+import { QueryType } from '../../utils/common.type';
 
 @Injectable()
 export class StakingFetchService implements OnModuleInit {
@@ -21,56 +28,76 @@ export class StakingFetchService implements OnModuleInit {
   private newestBlock: number = 0;
   private web3Config: IWeb3Config | undefined;
   private stakingContract: ethers.Contract;
+  private provider: ethers.Provider;
+  private hasInitDone: boolean = false;
 
   constructor(
     private readonly web3Service: Web3Service,
     private readonly configService: ConfigService<AllConfigType>,
     private readonly stakingEventsService: StakingEventsService,
-    @InjectQueue('blockchain-events') private readonly queue: Queue,
+    private readonly checkpointsService: CheckpointsService,
+    @InjectQueue('blockchain-index-event') private readonly queue: Queue,
   ) {
     this.web3Config = this.configService.get('app.web3Config', {
       infer: true,
     });
     this.stakingContract = this.web3Service.getStakingContract();
+    this.provider = this.web3Service.getProvider();
   }
 
   async onModuleInit(): Promise<void> {
-    try {
-      this.logger.log('Initializing StakingFetchService...');
+    await this.handleQueryBlocks();
+  }
 
-      this.newestBlock = await this.web3Service.getCurrentBlock();
-      this.logger.log(`Current block: ${this.newestBlock}`);
+  @Cron(CRON_DURATION.EVERY_3_MINUTES)
+  async handleCron() {
+    if (!this.hasInitDone) {
+      return;
+    }
+    await this.handleQueryBlocks();
+  }
 
-      const initDataDuration = this.web3Config?.initDataDuration || 3;
-      let fromBlock =
-        this.newestBlock - initDataDuration * ONE_MONTH_BLOCK_RANGE;
+  updateHasInitDone(isDone: boolean) {
+    this.hasInitDone = isDone;
+  }
 
-      // Ensure fromBlock is not negative
-      fromBlock = Math.max(fromBlock, 0);
+  async handleQueryBlocks() {
+    const queryBlocks = {
+      fromBlock: 0,
+      toBlock: 0,
+    };
 
-      const latestStake = await this.stakingEventsService.findLatestStake();
+    this.newestBlock = await this.web3Service.getCurrentBlock();
+    this.logger.log(`Newest on chain block: ${this.newestBlock}`);
+    const latestCheckpoint = await this.checkpointsService.findLatestCheckpoint(
+      QueryType.FETCH_STAKING,
+    );
 
-      if (latestStake) {
-        const latestBlockNumber = Number(latestStake.block_number);
-        if (!isNaN(latestBlockNumber) && latestBlockNumber >= 0) {
-          fromBlock = latestBlockNumber + 1;
-        }
-      }
-
-      this.logger.log(
-        `Fetching from block ${fromBlock} to ${this.newestBlock}`,
+    if (!latestCheckpoint) {
+      this.logger.warn(
+        'No latest checkpoint found, start fetching from genesis`',
       );
 
-      await this.queue.add('fetch-staking', {
-        type: 'fetch-staking',
-        fromBlock,
-        toBlock: this.newestBlock,
-      });
+      const fetchFromMonthAgo = this.web3Config?.initDataDuration || 3; //month
+      let fromBlock =
+        this.newestBlock - fetchFromMonthAgo * ONE_MONTH_BLOCK_RANGE;
+      fromBlock = Math.max(fromBlock, 0);
 
-      this.logger.log('Staking fetch job queued successfully');
-    } catch (error) {
-      throw error;
+      queryBlocks.fromBlock = fromBlock;
+      queryBlocks.toBlock = this.newestBlock;
+    } else {
+      const latestBlockNumber = Number(latestCheckpoint.blockNumber);
+      if (!isNaN(latestBlockNumber) && latestBlockNumber >= 0) {
+        queryBlocks.fromBlock = latestBlockNumber + 1;
+      }
+      queryBlocks.toBlock = this.newestBlock;
     }
+
+    await this.queue.add('fetch-staking', {
+      type: 'fetch-staking',
+      fromBlock: queryBlocks.fromBlock,
+      toBlock: queryBlocks.toBlock,
+    });
   }
 
   async fetchStakingEvents(fromBlock: number, toBlock: number): Promise<void> {
@@ -86,6 +113,14 @@ export class StakingFetchService implements OnModuleInit {
 
       this.logger.log(`Successfully fetched ${allEvents.length} events`);
       await this.logEvents(allEvents);
+      await this.checkpointsService.saveLatestCheckpoint(
+        toBlock,
+        QueryType.FETCH_STAKING,
+      );
+
+      if (!this.hasInitDone) {
+        this.updateHasInitDone(true);
+      }
     } catch (error) {
       throw error;
     }
@@ -231,14 +266,14 @@ export class StakingFetchService implements OnModuleInit {
     const stake = await this.findStake(user, amount, startTime, duration);
 
     const stakingEvent = {
-      tx_hash: event.transactionHash,
-      wallet_address: user,
+      txHash: event.transactionHash,
+      walletAddress: user,
       amount: String(formatEtherNumber(amount)),
-      start_time: String(formatTimestamp(startTime)),
+      startTime: String(formatTimestamp(startTime)),
       duration: String(convertToDays(Number(duration))),
-      block_number: String(event.blockNumber),
-      has_withdrawal: stake?.hasWithdrawn || false,
-      withdrawal_time: stake?.withdrawalTime
+      blockNumber: String(event.blockNumber),
+      hasWithdrawal: stake?.hasWithdrawn || false,
+      withdrawalTime: stake?.withdrawalTime
         ? formatTimestamp(stake.withdrawalTime)
         : null,
     };
