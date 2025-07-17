@@ -1,1 +1,1 @@
-# NestJS REST API boilerplate 
+# private-social-lens-indexer
