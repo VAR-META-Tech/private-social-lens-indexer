@@ -31,15 +31,26 @@ export class CheckpointsService {
     return this.checkpointRepository.findLatestCheckpoint(queryType);
   }
 
-  async saveLatestCheckpoint(toBlock: number, queryType: QueryType) {
+  async findFailedCheckpoints(queryType: QueryType) {
+    return this.checkpointRepository.findFailedCheckpoints(queryType);
+  }
+
+  async saveLatestCheckpoint(
+    toBlock: number,
+    fromBlock: number,
+    queryType: QueryType,
+    isFailed: boolean,
+  ) {
     try {
       const block = await this.provider.getBlock(toBlock);
       const unstakeTime = block?.timestamp || 0;
 
       await this.create({
-        blockNumber: String(toBlock),
+        toBlockNumber: String(toBlock),
+        fromBlockNumber: String(fromBlock),
         blockTimestamp: formatTimestamp(BigInt(unstakeTime)),
         queryType: queryType,
+        isFailed: isFailed,
       });
     } catch (error) {
       throw error;
@@ -67,18 +78,8 @@ export class CheckpointsService {
     return this.checkpointRepository.findByIds(ids);
   }
 
-  async update(
-    id: Checkpoint['id'],
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    updateCheckpointDto: UpdateCheckpointDto,
-  ) {
-    // Do not remove comment below.
-    // <updating-property />
-
-    return this.checkpointRepository.update(id, {
-      // Do not remove comment below.
-      // <updating-property-payload />
-    });
+  async update(id: Checkpoint['id'], updateCheckpointDto: UpdateCheckpointDto) {
+    return this.checkpointRepository.update(id, updateCheckpointDto);
   }
 
   remove(id: Checkpoint['id']) {

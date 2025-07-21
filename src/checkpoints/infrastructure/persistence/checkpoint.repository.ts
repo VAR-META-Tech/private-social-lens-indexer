@@ -22,6 +22,8 @@ export abstract class CheckpointRepository {
     queryType: QueryType,
   ): Promise<NullableType<Checkpoint>>;
 
+  abstract findFailedCheckpoints(queryType: QueryType): Promise<Checkpoint[]>;
+
   abstract update(
     id: Checkpoint['id'],
     payload: DeepPartial<Checkpoint>,

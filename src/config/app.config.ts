@@ -113,7 +113,7 @@ export default registerAs<AppConfig>('app', () => {
       dlpContractAddress: process.env.DLP_CONTRACT_ADDRESS || '',
       tokenContractAddress: process.env.TOKEN_CONTRACT_ADDRESS || '',
       initDataDuration: process.env.INIT_DATA_DURATION
-        ? parseInt(process.env.INIT_DATA_DURATION, 10)
+        ? Number(process.env.INIT_DATA_DURATION)
         : 12,
       workerMode: process.env.WORKER_MODE || WORKER_MODE.CRAWL,
     },

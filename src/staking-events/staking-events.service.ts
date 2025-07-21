@@ -384,6 +384,23 @@ export class StakingEventsService {
     }
   }
 
+  async getLatestStakeBlockNumberInRange(fromBlock: number, toBlock: number) {
+    const result = await this.dataSource
+      .createQueryBuilder(StakingEventEntity, 'stakingEvents')
+      .where(
+        'stakingEvents.blockNumber >= :fromBlock AND stakingEvents.blockNumber <= :toBlock',
+        { fromBlock, toBlock },
+      )
+      .orderBy('stakingEvents.blockNumber', 'DESC')
+      .getRawMany();
+
+    if (result.length === 0) {
+      return null;
+    }
+
+    return result[0].stakingEvents_blockNumber;
+  }
+
   private generateCompleteDateRange(
     fromDate: number,
     toDate: number,

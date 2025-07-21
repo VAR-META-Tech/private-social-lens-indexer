@@ -66,7 +66,7 @@ export class RequestRewardsService {
     }
   }
 
-  private generateCompleteDateRange(
+  generateCompleteDateRange(
     fromDate: number,
     toDate: number,
     result: Array<{ reqrewardamount: string; date: string }>,
@@ -94,6 +94,23 @@ export class RequestRewardsService {
         date: currentDate.toISOString(),
       };
     });
+  }
+
+  async getLatestRewardBlockNumberInRange(fromBlock: number, toBlock: number) {
+    const result = await this.dataSource
+      .createQueryBuilder(RequestRewardEntity, 'requestRewards')
+      .where(
+        'requestRewards.blockNumber >= :fromBlock AND requestRewards.blockNumber <= :toBlock',
+        { fromBlock, toBlock },
+      )
+      .orderBy('requestRewards.blockNumber', 'DESC')
+      .getRawMany();
+
+    if (result.length === 0) {
+      return null;
+    }
+
+    return result[0].requestRewards_blockNumber;
   }
 
   async create(createRequestRewardDto: CreateRequestRewardDto) {

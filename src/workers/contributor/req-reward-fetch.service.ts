@@ -65,41 +65,112 @@ export class ReqRewardFetchService implements OnModuleInit {
   }
 
   async handleQueryBlocks() {
+    await this.processFailedCheckpoints();
+
     const queryBlocks = {
       fromBlock: 0,
       toBlock: 0,
     };
 
-    this.newestBlock = await this.web3Service.getCurrentBlock();
-    this.logger.log(`Newest on chain block: ${this.newestBlock}`);
-    const latestCheckpoint = await this.checkpointsService.findLatestCheckpoint(
-      QueryType.FETCH_REQUEST_REWARD,
-    );
+    try {
+      this.newestBlock = await this.web3Service.getCurrentBlock();
+      this.logger.log(`Newest on chain block: ${this.newestBlock}`);
+      const latestCheckpoint =
+        await this.checkpointsService.findLatestCheckpoint(
+          QueryType.FETCH_REQUEST_REWARD,
+        );
 
-    if (!latestCheckpoint) {
-      this.logger.warn(
-        'No latest request reward checkpoint found, start fetching from genesis`',
+      if (!latestCheckpoint) {
+        this.logger.warn(
+          'No latest request reward checkpoint found, start fetching from genesis`',
+        );
+
+        const fetchFromMonthAgo = this.web3Config?.initDataDuration || 12; //month
+        let fromBlock =
+          this.newestBlock - fetchFromMonthAgo * ONE_MONTH_BLOCK_RANGE;
+        fromBlock = Math.max(fromBlock, 0);
+
+        queryBlocks.fromBlock = fromBlock;
+        queryBlocks.toBlock = this.newestBlock;
+      } else {
+        const latestBlockNumber = Number(latestCheckpoint.toBlockNumber);
+        queryBlocks.fromBlock = latestBlockNumber + 1;
+        queryBlocks.toBlock = this.newestBlock;
+      }
+
+      if (queryBlocks.fromBlock > queryBlocks.toBlock) {
+        this.logger.log('No new blocks to fetch, skipping');
+        return;
+      }
+
+      await this.fetchReqRewardEvents(
+        queryBlocks.fromBlock,
+        queryBlocks.toBlock,
       );
-
-      const fetchFromMonthAgo = this.web3Config?.initDataDuration || 12; //month
-      let fromBlock =
-        this.newestBlock - fetchFromMonthAgo * ONE_MONTH_BLOCK_RANGE;
-      fromBlock = Math.max(fromBlock, 0);
-
-      queryBlocks.fromBlock = fromBlock;
-      queryBlocks.toBlock = this.newestBlock;
-    } else {
-      const latestBlockNumber = Number(latestCheckpoint.blockNumber);
-      queryBlocks.fromBlock = latestBlockNumber + 1;
-      queryBlocks.toBlock = this.newestBlock;
+    } catch (error) {
+      this.logger.error('Failed to handle query blocks', error);
+      throw error;
     }
+  }
 
-    if (queryBlocks.fromBlock > queryBlocks.toBlock) {
-      this.logger.log('No new blocks to fetch, skipping');
-      return;
+  async processFailedCheckpoints() {
+    try {
+      const failedCheckpoints =
+        await this.checkpointsService.findFailedCheckpoints(
+          QueryType.FETCH_REQUEST_REWARD,
+        );
+
+      if (failedCheckpoints.length === 0) {
+        this.logger.log('No req rerward failed checkpoints found, skipping...');
+        return;
+      }
+
+      const failedRanges: BlockRange[] = [];
+
+      for (const checkpoint of failedCheckpoints) {
+        const latestBlockNumber =
+          await this.requestRewardService.getLatestRewardBlockNumberInRange(
+            Number(checkpoint.fromBlockNumber),
+            Number(checkpoint.toBlockNumber),
+          );
+
+        if (!latestBlockNumber) {
+          this.logger.log(
+            `refetch req reward from ${checkpoint.fromBlockNumber} to ${checkpoint.toBlockNumber}`,
+          );
+
+          failedRanges.push({
+            from: Number(checkpoint.fromBlockNumber),
+            to: Number(checkpoint.toBlockNumber),
+            checkpointId: checkpoint.id,
+          });
+          continue;
+        }
+
+        if (latestBlockNumber >= Number(checkpoint.toBlockNumber)) {
+          this.logger.log(`invalid failed latest block number, skipping...`);
+          continue;
+        }
+
+        this.logger.log(
+          `refetch req reward from ${Number(latestBlockNumber) + 1} to ${checkpoint.toBlockNumber}`,
+        );
+
+        failedRanges.push({
+          from: Number(latestBlockNumber) + 1,
+          to: Number(checkpoint.toBlockNumber),
+          checkpointId: checkpoint.id,
+        });
+      }
+
+      await this.queryRanges(
+        failedRanges,
+        QueryType.REFRESH_FAILED_REQUEST_REWARD,
+      );
+    } catch (error) {
+      this.logger.error('Failed to process failed checkpoints', error);
+      throw error;
     }
-
-    await this.fetchReqRewardEvents(queryBlocks.fromBlock, queryBlocks.toBlock);
   }
 
   async fetchReqRewardEvents(
@@ -118,8 +189,12 @@ export class ReqRewardFetchService implements OnModuleInit {
         toBlock,
         ONE_WEEK_BLOCK_RANGE,
       );
-      await this.queryRanges(splitRanges);
+      await this.queryRanges(splitRanges, QueryType.FETCH_REQUEST_REWARD);
     } catch (error) {
+      this.logger.error(
+        `Failed to fetch req reward events from ${fromBlock} to ${toBlock}`,
+        error,
+      );
       throw error;
     }
   }
@@ -148,22 +223,28 @@ export class ReqRewardFetchService implements OnModuleInit {
     return ranges;
   }
 
-  async queryRanges(ranges: BlockRange[]): Promise<void> {
-    for (const range of ranges) {
-      await this.queue.add('fetch-req-reward', {
-        type: 'fetch-req-reward',
-        fromBlock: range.from,
-        toBlock: range.to,
-      });
+  async queryRanges(ranges: BlockRange[], type: string): Promise<void> {
+    try {
+      for (const range of ranges) {
+        await this.queue.add(type, {
+          type,
+          fromBlock: range.from,
+          toBlock: range.to,
+          ...(range.checkpointId && { checkpointId: range.checkpointId }),
+        });
 
-      // Prevent rate limit among requests
-      await this.delay(MILLI_SECS_PER_SEC);
+        // Prevent rate limit among requests
+        await this.delay(MILLI_SECS_PER_SEC);
+      }
+    } catch (error) {
+      this.logger.error('Failed to query ranges', error);
+      throw error;
     }
   }
 
   async executeRangeQuery(range: BlockRange): Promise<void> {
-    const allEvents: EventLog[] = [];
     try {
+      const allEvents: EventLog[] = [];
       const batches = this.createBatches(range.from, range.to);
       const promises = batches.map((batch) => {
         return this.web3Service.fetchReqReward(batch.from, batch.to);
@@ -172,15 +253,49 @@ export class ReqRewardFetchService implements OnModuleInit {
       const batchResults = await Promise.all(promises);
       const events = batchResults.flat() as EventLog[];
       allEvents.push(...events);
+
+      await this.logEvents(allEvents);
+      await this.checkpointsService.saveLatestCheckpoint(
+        range.to,
+        range.from,
+        QueryType.FETCH_REQUEST_REWARD,
+        false,
+      );
     } catch (error) {
+      await this.checkpointsService.saveLatestCheckpoint(
+        range.to,
+        range.from,
+        QueryType.FETCH_REQUEST_REWARD,
+        true,
+      );
       throw error;
     }
+  }
 
-    await this.logEvents(allEvents);
-    await this.checkpointsService.saveLatestCheckpoint(
-      range.to,
-      QueryType.FETCH_REQUEST_REWARD,
-    );
+  async executeFailedRangeQuery(
+    range: BlockRange,
+    checkpointId: string,
+  ): Promise<void> {
+    try {
+      const allEvents: EventLog[] = [];
+      const batches = this.createBatches(range.from, range.to);
+      const promises = batches.map((batch) => {
+        return this.web3Service.fetchReqReward(batch.from, batch.to);
+      });
+
+      const batchResults = await Promise.all(promises);
+      const events = batchResults.flat() as EventLog[];
+      allEvents.push(...events);
+
+      await this.logEvents(allEvents);
+
+      await this.checkpointsService.update(checkpointId, {
+        isFailed: false,
+      });
+    } catch (error) {
+      this.logger.error('Failed to execute failed range query', error);
+      throw error;
+    }
   }
 
   createBatches(fromBlock: number, toBlock: number): IBatch[] {
@@ -200,48 +315,78 @@ export class ReqRewardFetchService implements OnModuleInit {
   }
 
   async logEvents(events: EventLog[]): Promise<void> {
-    if (!Array.isArray(events) || events.length === 0) {
-      this.logger.log('No request reward events found');
-      return;
-    }
-
-    this.logger.log(`Processing ${events.length} request reward events`);
-
-    for (const event of events) {
-      try {
-        await this.processRequestRewardEvent(event);
-      } catch (error) {
-        throw error;
+    try {
+      if (!Array.isArray(events) || events.length === 0) {
+        this.logger.log('No request reward events found');
+        return;
       }
+
+      this.logger.log(`Processing ${events.length} request reward events`);
+
+      const batches = this.splitEventProcess(events);
+
+      for (const batch of batches) {
+        const promises = batch.map((event) => {
+          return this.processRequestRewardEvent(event);
+        });
+
+        await Promise.all(promises);
+
+        await this.delay(MILLI_SECS_PER_SEC);
+      }
+
+      this.logger.log('Finished processing request reward events');
+    } catch (error) {
+      this.logger.error('Failed to log events', error);
+      throw error;
+    }
+  }
+
+  splitEventProcess(events: EventLog[]): EventLog[][] {
+    const maxProcessNumber = 10;
+
+    const batches: EventLog[][] = [];
+
+    for (let i = 0; i < events.length; i += maxProcessNumber) {
+      const maxItem = Math.min(i + maxProcessNumber, events.length);
+      batches.push(events.slice(i, maxItem));
     }
 
-    this.logger.log('Finished processing request reward events');
+    return batches;
   }
 
   async processRequestRewardEvent(event: EventLog): Promise<void> {
-    const [contributorAddress, fileId, proofIndex, rewardAmount] = event.args;
+    try {
+      const [contributorAddress, fileId, proofIndex, rewardAmount] = event.args;
 
-    if (!contributorAddress || !fileId || !proofIndex || !rewardAmount) {
-      this.logger.warn(
-        `Invalid event args for transaction ${event.transactionHash}`,
+      if (!contributorAddress || !fileId || !proofIndex || !rewardAmount) {
+        this.logger.warn(
+          `Invalid event args for transaction ${event.transactionHash}`,
+        );
+        return;
+      }
+
+      const block = await this.provider.getBlock(event.blockNumber);
+      const timestamp = block?.timestamp || 0;
+
+      const requestRewardEvent: CreateRequestRewardDto = {
+        txHash: event.transactionHash,
+        contributorAddress: contributorAddress,
+        fileId: String(Number(fileId)),
+        proofIndex: String(Number(proofIndex)),
+        rewardAmount: formatEtherNumber(rewardAmount),
+        blockNumber: String(event.blockNumber),
+        blockTimestamp: formatTimestamp(BigInt(timestamp)),
+      };
+
+      await this.requestRewardService.create(requestRewardEvent);
+    } catch (error) {
+      this.logger.error(
+        `Failed to process request reward event ${event.transactionHash}`,
+        error,
       );
-      return;
+      throw error;
     }
-
-    const block = await this.provider.getBlock(event.blockNumber);
-    const timestamp = block?.timestamp || 0;
-
-    const requestRewardEvent: CreateRequestRewardDto = {
-      txHash: event.transactionHash,
-      contributorAddress: contributorAddress,
-      fileId: String(Number(fileId)),
-      proofIndex: String(Number(proofIndex)),
-      rewardAmount: formatEtherNumber(rewardAmount),
-      blockNumber: String(event.blockNumber),
-      blockTimestamp: formatTimestamp(BigInt(timestamp)),
-    };
-
-    await this.requestRewardService.create(requestRewardEvent);
   }
 
   delay(ms: number): Promise<void> {

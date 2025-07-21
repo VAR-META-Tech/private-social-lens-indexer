@@ -4,24 +4,46 @@ import { Job } from 'bullmq';
 import { StakingFetchService } from './staking/staking-fetch.service';
 import { UnstakingFetchService } from './staking/unstaking-fetch.service';
 import { ReqRewardFetchService } from './contributor/req-reward-fetch.service';
+import { QueryType } from 'src/utils/common.type';
+
 export interface FetchStakingJob {
-  type: 'fetch-staking';
+  type: QueryType.FETCH_STAKING;
   fromBlock: number;
   toBlock: number;
 }
 
 export interface FetchUnstakingJob extends Omit<FetchStakingJob, 'type'> {
-  type: 'fetch-unstaking';
+  type: QueryType.FETCH_UNSTAKING;
 }
 
 export interface FetchReqRewardJob extends Omit<FetchStakingJob, 'type'> {
-  type: 'fetch-req-reward';
+  type: QueryType.FETCH_REQUEST_REWARD;
+}
+
+export interface RefetchFailedReqRewardJob
+  extends Omit<FetchStakingJob, 'type'> {
+  type: QueryType.REFRESH_FAILED_REQUEST_REWARD;
+  checkpointId: string;
+}
+
+export interface RefetchFailedUnstakingJob
+  extends Omit<FetchStakingJob, 'type'> {
+  type: QueryType.REFRESH_FAILED_UNSTAKING;
+  checkpointId: string;
+}
+
+export interface RefetchFailedStakingJob extends Omit<FetchStakingJob, 'type'> {
+  type: QueryType.REFRESH_FAILED_STAKING;
+  checkpointId: string;
 }
 
 export type BlockchainFetchJob =
   | FetchStakingJob
   | FetchUnstakingJob
-  | FetchReqRewardJob;
+  | FetchReqRewardJob
+  | RefetchFailedReqRewardJob
+  | RefetchFailedUnstakingJob
+  | RefetchFailedStakingJob;
 
 @Processor('blockchain-index-event', {
   concurrency: 10,
@@ -47,24 +69,52 @@ export class WorkerService extends WorkerHost {
     console.log('Processing blockchain fetch job:', job.type);
 
     try {
-      if (job.type === 'fetch-staking') {
+      if (job.type === QueryType.FETCH_STAKING) {
         await this.stakingFetchService.executeRangeQuery({
           from: job.fromBlock,
           to: job.toBlock,
         });
         console.log('Successfully processed fetch staking job');
-      } else if (job.type === 'fetch-unstaking') {
+      } else if (job.type === QueryType.FETCH_UNSTAKING) {
         await this.unstakingFetchService.executeRangeQuery({
           from: job.fromBlock,
           to: job.toBlock,
         });
         console.log('Successfully processed fetch unstaking job');
-      } else if (job.type === 'fetch-req-reward') {
+      } else if (job.type === QueryType.FETCH_REQUEST_REWARD) {
         await this.reqRewardFetchService.executeRangeQuery({
           from: job.fromBlock,
           to: job.toBlock,
         });
         console.log('Successfully processed fetch req reward job');
+      } else if (job.type === QueryType.REFRESH_FAILED_REQUEST_REWARD) {
+        await this.reqRewardFetchService.executeFailedRangeQuery(
+          {
+            from: job.fromBlock,
+            to: job.toBlock,
+          },
+          job.checkpointId,
+        );
+        console.log('Successfully processed refetch failed req reward job');
+      } else if (job.type === QueryType.REFRESH_FAILED_UNSTAKING) {
+        await this.unstakingFetchService.executeFailedRangeQuery(
+          {
+            from: job.fromBlock,
+            to: job.toBlock,
+          },
+          job.checkpointId,
+        );
+        console.log('Successfully processed refetch failed unstaking job');
+      } else if (job.type === QueryType.REFRESH_FAILED_STAKING) {
+        console.log('🚀 ~ WorkerService ~ processFetchJob ~ job:', job);
+        await this.stakingFetchService.executeFailedRangeQuery(
+          {
+            from: job.fromBlock,
+            to: job.toBlock,
+          },
+          job.checkpointId,
+        );
+        console.log('Successfully processed refetch failed staking job');
       }
     } catch (error) {
       throw error;

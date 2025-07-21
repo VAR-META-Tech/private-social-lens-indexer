@@ -98,6 +98,23 @@ export class UnstakingEventsService {
     }
   }
 
+  async getLatestUnstakeBlockNumberInRange(fromBlock: number, toBlock: number) {
+    const result = await this.dataSource
+      .createQueryBuilder(UnstakingEventEntity, 'unstakingEvents')
+      .where(
+        'unstakingEvents.blockNumber >= :fromBlock AND unstakingEvents.blockNumber <= :toBlock',
+        { fromBlock, toBlock },
+      )
+      .orderBy('unstakingEvents.blockNumber', 'DESC')
+      .getRawMany();
+
+    if (result.length === 0) {
+      return null;
+    }
+
+    return result[0].unstakingEvents_blockNumber;
+  }
+
   async getUnstakingMovement(
     query: GetUnstakeInfoDto,
   ): Promise<Array<{ unstakeamount: string; date: string }>> {

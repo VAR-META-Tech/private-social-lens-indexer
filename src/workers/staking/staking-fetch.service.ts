@@ -68,41 +68,105 @@ export class StakingFetchService implements OnModuleInit {
   }
 
   async handleQueryBlocks() {
+    await this.processFailedCheckpoints();
+
     const queryBlocks = {
       fromBlock: 0,
       toBlock: 0,
     };
 
-    this.newestBlock = await this.web3Service.getCurrentBlock();
-    this.logger.log(`Newest on chain block: ${this.newestBlock}`);
-    const latestCheckpoint = await this.checkpointsService.findLatestCheckpoint(
-      QueryType.FETCH_STAKING,
-    );
+    try {
+      this.newestBlock = await this.web3Service.getCurrentBlock();
+      this.logger.log(`Newest on chain block: ${this.newestBlock}`);
+      const latestCheckpoint =
+        await this.checkpointsService.findLatestCheckpoint(
+          QueryType.FETCH_STAKING,
+        );
 
-    if (!latestCheckpoint) {
-      this.logger.warn(
-        'No latest checkpoint found, start fetching from genesis`',
-      );
+      if (!latestCheckpoint) {
+        this.logger.warn(
+          'No latest checkpoint found, start fetching from genesis`',
+        );
 
-      const fetchFromMonthAgo = this.web3Config?.initDataDuration || 12; //month
-      let fromBlock =
-        this.newestBlock - fetchFromMonthAgo * ONE_MONTH_BLOCK_RANGE;
-      fromBlock = Math.max(fromBlock, 0);
+        const fetchFromMonthAgo = this.web3Config?.initDataDuration || 12; //month
+        let fromBlock =
+          this.newestBlock - fetchFromMonthAgo * ONE_MONTH_BLOCK_RANGE;
+        fromBlock = Math.max(fromBlock, 0);
 
-      queryBlocks.fromBlock = fromBlock;
-      queryBlocks.toBlock = this.newestBlock;
-    } else {
-      const latestBlockNumber = Number(latestCheckpoint.blockNumber);
-      queryBlocks.fromBlock = latestBlockNumber + 1;
-      queryBlocks.toBlock = this.newestBlock;
+        queryBlocks.fromBlock = fromBlock;
+        queryBlocks.toBlock = this.newestBlock;
+      } else {
+        const latestBlockNumber = Number(latestCheckpoint.toBlockNumber);
+        queryBlocks.fromBlock = latestBlockNumber + 1;
+        queryBlocks.toBlock = this.newestBlock;
+      }
+
+      if (queryBlocks.fromBlock > queryBlocks.toBlock) {
+        this.logger.log('No new blocks to fetch, skipping');
+        return;
+      }
+
+      await this.fetchStakingEvents(queryBlocks.fromBlock, queryBlocks.toBlock);
+    } catch (error) {
+      this.logger.error('Failed to handle query blocks', error);
+      throw error;
     }
+  }
 
-    if (queryBlocks.fromBlock > queryBlocks.toBlock) {
-      this.logger.log('No new blocks to fetch, skipping');
-      return;
+  async processFailedCheckpoints() {
+    try {
+      const failedCheckpoints =
+        await this.checkpointsService.findFailedCheckpoints(
+          QueryType.FETCH_STAKING,
+        );
+
+      if (failedCheckpoints.length === 0) {
+        this.logger.log('No staking failed checkpoints found, skipping...');
+        return;
+      }
+
+      const failedRanges: BlockRange[] = [];
+
+      for (const checkpoint of failedCheckpoints) {
+        const latestBlockNumber =
+          await this.stakingEventsService.getLatestStakeBlockNumberInRange(
+            Number(checkpoint.fromBlockNumber),
+            Number(checkpoint.toBlockNumber),
+          );
+
+        if (!latestBlockNumber) {
+          this.logger.log(
+            `refetch staking from ${checkpoint.fromBlockNumber} to ${checkpoint.toBlockNumber}`,
+          );
+          failedRanges.push({
+            from: Number(checkpoint.fromBlockNumber),
+            to: Number(checkpoint.toBlockNumber),
+            checkpointId: checkpoint.id,
+          });
+          continue;
+        }
+
+        if (latestBlockNumber >= Number(checkpoint.toBlockNumber)) {
+          this.logger.log(`invalid failed latest block number, skipping...`);
+          continue;
+        }
+
+        this.logger.log(
+          `refetch staking from ${Number(latestBlockNumber) + 1} to ${checkpoint.toBlockNumber}`,
+        );
+
+        failedRanges.push({
+          from: Number(latestBlockNumber) + 1,
+          to: Number(checkpoint.toBlockNumber),
+          checkpointId: checkpoint.id,
+        });
+      }
+
+      await this.queryRanges(failedRanges, QueryType.REFRESH_FAILED_STAKING);
+    } catch (error) {
+      this.logger.error('Failed to process failed checkpoints', error);
+      throw error;
     }
-
-    await this.fetchStakingEvents(queryBlocks.fromBlock, queryBlocks.toBlock);
   }
 
   async fetchStakingEvents(fromBlock: number, toBlock: number): Promise<void> {
@@ -118,7 +182,7 @@ export class StakingFetchService implements OnModuleInit {
         toBlock,
         ONE_WEEK_BLOCK_RANGE,
       );
-      await this.queryRanges(splitRanges);
+      await this.queryRanges(splitRanges, QueryType.FETCH_STAKING);
     } catch (error) {
       throw error;
     }
@@ -148,19 +212,60 @@ export class StakingFetchService implements OnModuleInit {
     return ranges;
   }
 
-  async queryRanges(ranges: BlockRange[]): Promise<void> {
-    for (const range of ranges) {
-      await this.queue.add('fetch-staking', {
-        type: 'fetch-staking',
-        fromBlock: range.from,
-        toBlock: range.to,
-      });
-      // Prevent rate limit among requests
-      await this.delay(MILLI_SECS_PER_SEC);
+  async queryRanges(ranges: BlockRange[], type: string): Promise<void> {
+    try {
+      for (const range of ranges) {
+        await this.queue.add(type, {
+          type,
+          fromBlock: range.from,
+          toBlock: range.to,
+          ...(range.checkpointId && {
+            checkpointId: range.checkpointId,
+          }),
+        });
+        // Prevent rate limit among requests
+        await this.delay(MILLI_SECS_PER_SEC);
+      }
+    } catch (error) {
+      this.logger.error('Failed to query ranges', error);
+      throw error;
     }
   }
 
   async executeRangeQuery(range: BlockRange): Promise<void> {
+    try {
+      const allEvents: EventLog[] = [];
+      const batches = this.createBatches(range.from, range.to);
+      const promises = batches.map((batch) => {
+        return this.web3Service.fetchStaking(batch.from, batch.to);
+      });
+
+      const batchResults = await Promise.all(promises);
+      const events = batchResults.flat() as EventLog[];
+      allEvents.push(...events);
+
+      await this.logEvents(allEvents);
+      await this.checkpointsService.saveLatestCheckpoint(
+        range.to,
+        range.from,
+        QueryType.FETCH_STAKING,
+        false,
+      );
+    } catch (error) {
+      await this.checkpointsService.saveLatestCheckpoint(
+        range.to,
+        range.from,
+        QueryType.FETCH_STAKING,
+        true,
+      );
+      throw error;
+    }
+  }
+
+  async executeFailedRangeQuery(
+    range: BlockRange,
+    checkpointId: string,
+  ): Promise<void> {
     const allEvents: EventLog[] = [];
     try {
       const batches = this.createBatches(range.from, range.to);
@@ -171,15 +276,14 @@ export class StakingFetchService implements OnModuleInit {
       const batchResults = await Promise.all(promises);
       const events = batchResults.flat() as EventLog[];
       allEvents.push(...events);
+
+      await this.logEvents(allEvents);
+      await this.checkpointsService.update(checkpointId, {
+        isFailed: false,
+      });
     } catch (error) {
       throw error;
     }
-
-    await this.logEvents(allEvents);
-    await this.checkpointsService.saveLatestCheckpoint(
-      range.to,
-      QueryType.FETCH_STAKING,
-    );
   }
 
   createBatches(fromBlock: number, toBlock: number): IBatch[] {
@@ -242,15 +346,32 @@ export class StakingFetchService implements OnModuleInit {
 
     this.logger.log(`Processing ${events.length} staking events`);
 
-    for (const event of events) {
-      try {
-        await this.processStakingEvent(event);
-      } catch (error) {
-        throw error;
-      }
+    const batches = this.splitEventProcess(events);
+
+    for (const batch of batches) {
+      const promises = batch.map((event) => {
+        return this.processStakingEvent(event);
+      });
+
+      await Promise.all(promises);
+
+      await this.delay(MILLI_SECS_PER_SEC);
     }
 
     this.logger.log('Finished processing staking events');
+  }
+
+  splitEventProcess(events: EventLog[]): EventLog[][] {
+    const maxProcessNumber = 10;
+
+    const batches: EventLog[][] = [];
+
+    for (let i = 0; i < events.length; i += maxProcessNumber) {
+      const maxItem = Math.min(i + maxProcessNumber, events.length);
+      batches.push(events.slice(i, maxItem));
+    }
+
+    return batches;
   }
 
   async processStakingEvent(event: EventLog): Promise<void> {

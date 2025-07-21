@@ -10,7 +10,12 @@ export class Checkpoint {
   @ApiProperty({
     type: String,
   })
-  blockNumber: string;
+  toBlockNumber: string;
+
+  @ApiProperty({
+    type: String,
+  })
+  fromBlockNumber: string;
 
   @ApiProperty({
     type: String,
@@ -21,6 +26,11 @@ export class Checkpoint {
     type: String,
   })
   queryType: QueryType;
+
+  @ApiProperty({
+    type: Boolean,
+  })
+  isFailed: boolean;
 
   @ApiProperty()
   createdAt: Date;
