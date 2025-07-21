@@ -5,7 +5,12 @@ export class CreateCheckpointDto {
   @ApiProperty({
     type: String,
   })
-  blockNumber: string;
+  toBlockNumber: string;
+
+  @ApiProperty({
+    type: String,
+  })
+  fromBlockNumber: string;
 
   @ApiProperty({
     type: String,
@@ -16,4 +21,9 @@ export class CreateCheckpointDto {
     type: String,
   })
   queryType: QueryType;
+
+  @ApiProperty({
+    type: Boolean,
+  })
+  isFailed: boolean;
 }

@@ -13,6 +13,8 @@ import {
   CRON_DURATION,
   MILLI_SECS_PER_SEC,
   ONE_MONTH_BLOCK_RANGE,
+  ONE_WEEK_BLOCK_RANGE,
+  WORKER_MODE,
 } from '../../utils/const';
 import { BlockRange, IBatch } from '../../utils/types/common.type';
 import { CheckpointsService } from '../../checkpoints/checkpoints.service';
@@ -24,7 +26,6 @@ export class UnstakingFetchService implements OnModuleInit {
   private newestBlock: number = 0;
   private web3Config: IWeb3Config | undefined;
   private provider: ethers.Provider;
-  private hasInitDone: boolean = false;
 
   constructor(
     private readonly web3Service: Web3Service,
@@ -40,57 +41,130 @@ export class UnstakingFetchService implements OnModuleInit {
   }
 
   async onModuleInit() {
+    const isCrawlMode = this.web3Config?.workerMode === WORKER_MODE.CRAWL;
+
+    if (!isCrawlMode) {
+      this.logger.log('This is not crawl mode, skipping');
+      return;
+    }
+
     await this.handleQueryBlocks();
   }
 
   @Cron(CRON_DURATION.EVERY_3_MINUTES)
   async handleCron() {
-    if (!this.hasInitDone) {
+    const isListenMode = this.web3Config?.workerMode === WORKER_MODE.LISTEN;
+
+    if (!isListenMode) {
+      this.logger.log('This is not listen mode, skipping');
       return;
     }
+
     await this.handleQueryBlocks();
   }
 
-  updateHasInitDone(isDone: boolean) {
-    this.hasInitDone = isDone;
-  }
-
   async handleQueryBlocks() {
+    await this.processFailedCheckpoints();
+
     const queryBlocks = {
       fromBlock: 0,
       toBlock: 0,
     };
 
-    this.newestBlock = await this.web3Service.getCurrentBlock();
-    this.logger.log(`Newest on chain block: ${this.newestBlock}`);
-    const latestCheckpoint = await this.checkpointsService.findLatestCheckpoint(
-      QueryType.FETCH_UNSTAKING,
-    );
-    if (!latestCheckpoint) {
-      this.logger.warn(
-        'No latest unstake checkpoint found, start fetching from genesis`',
-      );
+    try {
+      this.newestBlock = await this.web3Service.getCurrentBlock();
+      this.logger.log(`Newest on chain block: ${this.newestBlock}`);
+      const latestCheckpoint =
+        await this.checkpointsService.findLatestCheckpoint(
+          QueryType.FETCH_UNSTAKING,
+        );
+      if (!latestCheckpoint) {
+        this.logger.warn(
+          'No latest unstake checkpoint found, start fetching from genesis`',
+        );
 
-      const fetchFromMonthAgo = this.web3Config?.initDataDuration || 3; //month
-      let fromBlock =
-        this.newestBlock - fetchFromMonthAgo * ONE_MONTH_BLOCK_RANGE;
-      fromBlock = Math.max(fromBlock, 0);
+        const fetchFromMonthAgo = this.web3Config?.initDataDuration || 12; //month
+        let fromBlock =
+          this.newestBlock - fetchFromMonthAgo * ONE_MONTH_BLOCK_RANGE;
+        fromBlock = Math.max(fromBlock, 0);
 
-      queryBlocks.fromBlock = fromBlock;
-      queryBlocks.toBlock = this.newestBlock;
-    } else {
-      const latestBlockNumber = Number(latestCheckpoint.blockNumber);
-      if (!isNaN(latestBlockNumber) && latestBlockNumber >= 0) {
+        queryBlocks.fromBlock = fromBlock;
+        queryBlocks.toBlock = this.newestBlock;
+      } else {
+        const latestBlockNumber = Number(latestCheckpoint.toBlockNumber);
         queryBlocks.fromBlock = latestBlockNumber + 1;
+        queryBlocks.toBlock = this.newestBlock;
       }
-      queryBlocks.toBlock = this.newestBlock;
-    }
 
-    await this.queue.add('fetch-unstaking', {
-      type: 'fetch-unstaking',
-      fromBlock: queryBlocks.fromBlock,
-      toBlock: queryBlocks.toBlock,
-    });
+      if (queryBlocks.fromBlock > queryBlocks.toBlock) {
+        this.logger.log('No new blocks to fetch, skipping');
+        return;
+      }
+
+      await this.fetchUnstakingEvents(
+        queryBlocks.fromBlock,
+        queryBlocks.toBlock,
+      );
+    } catch (error) {
+      this.logger.error('Failed to handle query blocks', error);
+      throw error;
+    }
+  }
+
+  async processFailedCheckpoints() {
+    try {
+      const failedCheckpoints =
+        await this.checkpointsService.findFailedCheckpoints(
+          QueryType.FETCH_UNSTAKING,
+        );
+
+      if (failedCheckpoints.length === 0) {
+        this.logger.log('No unstaking failed checkpoints found, skipping...');
+        return;
+      }
+
+      const failedRanges: BlockRange[] = [];
+
+      for (const checkpoint of failedCheckpoints) {
+        const latestBlockNumber =
+          await this.unstakingEventsService.getLatestUnstakeBlockNumberInRange(
+            Number(checkpoint.fromBlockNumber),
+            Number(checkpoint.toBlockNumber),
+          );
+
+        if (!latestBlockNumber) {
+          this.logger.log(
+            `refetch unstaking from ${checkpoint.fromBlockNumber} to ${checkpoint.toBlockNumber}`,
+          );
+          failedRanges.push({
+            from: Number(checkpoint.fromBlockNumber),
+            to: Number(checkpoint.toBlockNumber),
+            checkpointId: checkpoint.id,
+          });
+          continue;
+        }
+
+        if (latestBlockNumber >= Number(checkpoint.toBlockNumber)) {
+          this.logger.log(`invalid failed latest block number, skipping...`);
+          continue;
+        }
+
+        this.logger.log(
+          `refetch unstaking from ${Number(latestBlockNumber) + 1} to ${checkpoint.toBlockNumber}`,
+        );
+
+        failedRanges.push({
+          from: Number(latestBlockNumber) + 1,
+          to: Number(checkpoint.toBlockNumber),
+          checkpointId: checkpoint.id,
+        });
+      }
+
+      await this.queryRanges(failedRanges, QueryType.REFRESH_FAILED_UNSTAKING);
+    } catch (error) {
+      this.logger.error('Failed to process failed checkpoints', error);
+      throw error;
+    }
   }
 
   async fetchUnstakingEvents(
@@ -104,25 +178,18 @@ export class UnstakingFetchService implements OnModuleInit {
         `Fetching unstaking events from block ${fromBlock} to ${toBlock}`,
       );
 
-      const monthlyRanges = this.splitIntoMonthlyRanges(fromBlock, toBlock);
-      const allEvents = await this.queryMonthlyRanges(monthlyRanges);
-
-      this.logger.log(`Successfully fetched ${allEvents.length} events`);
-      await this.checkpointsService.saveLatestCheckpoint(
+      const splitRanges = this.splitIntoRanges(
+        fromBlock,
         toBlock,
-        QueryType.FETCH_UNSTAKING,
+        ONE_WEEK_BLOCK_RANGE,
       );
-      await this.logEvents(allEvents);
-
-      if (!this.hasInitDone) {
-        this.updateHasInitDone(true);
-      }
+      await this.queryRanges(splitRanges, QueryType.FETCH_UNSTAKING);
     } catch (error) {
       throw error;
     }
   }
 
-  private validateBlockRange(fromBlock: number, toBlock: number): void {
+  validateBlockRange(fromBlock: number, toBlock: number): void {
     if (fromBlock < 0 || toBlock < 0) {
       throw new Error('Block numbers must be non-negative');
     }
@@ -131,55 +198,97 @@ export class UnstakingFetchService implements OnModuleInit {
     }
   }
 
-  private splitIntoMonthlyRanges(
+  splitIntoRanges(
     fromBlock: number,
     toBlock: number,
+    splitValue: number,
   ): BlockRange[] {
     const ranges: BlockRange[] = [];
 
-    for (
-      let current = fromBlock;
-      current < toBlock;
-      current += ONE_MONTH_BLOCK_RANGE
-    ) {
-      const rangeEnd = Math.min(current + ONE_MONTH_BLOCK_RANGE - 1, toBlock);
+    for (let current = fromBlock; current < toBlock; current += splitValue) {
+      const rangeEnd = Math.min(current + splitValue - 1, toBlock);
       ranges.push({ from: current, to: rangeEnd });
     }
 
     return ranges;
   }
 
-  private async queryMonthlyRanges(
-    monthlyRanges: BlockRange[],
-  ): Promise<EventLog[]> {
-    const allEvents: EventLog[] = [];
-
-    for (const range of monthlyRanges) {
-      try {
-        const events = await this.executeRangeQuery(range);
-        allEvents.push(...events);
+  async queryRanges(ranges: BlockRange[], type: string): Promise<void> {
+    try {
+      for (const range of ranges) {
+        await this.queue.add(type, {
+          type,
+          fromBlock: range.from,
+          toBlock: range.to,
+          ...(range.checkpointId && {
+            checkpointId: range.checkpointId,
+          }),
+        });
 
         // Prevent rate limit among requests
         await this.delay(MILLI_SECS_PER_SEC);
-      } catch (error) {
-        throw error;
       }
+    } catch (error) {
+      this.logger.error('Failed to query ranges', error);
+      throw error;
     }
-
-    return allEvents;
   }
 
-  private async executeRangeQuery(range: BlockRange): Promise<EventLog[]> {
-    const batches = this.createBatches(range.from, range.to);
-    const promises = batches.map((batch) => {
-      return this.web3Service.fetchUnstaking(batch.from, batch.to);
-    });
+  async executeRangeQuery(range: BlockRange): Promise<void> {
+    const allEvents: EventLog[] = [];
+    try {
+      const batches = this.createBatches(range.from, range.to);
+      const promises = batches.map((batch) => {
+        return this.web3Service.fetchUnstaking(batch.from, batch.to);
+      });
 
-    const batchResults = await Promise.all(promises);
-    return batchResults.flat() as EventLog[];
+      const batchResults = await Promise.all(promises);
+      const events = batchResults.flat() as EventLog[];
+      allEvents.push(...events);
+
+      await this.logEvents(allEvents);
+      await this.checkpointsService.saveLatestCheckpoint(
+        range.to,
+        range.from,
+        QueryType.FETCH_UNSTAKING,
+        false,
+      );
+    } catch (error) {
+      await this.checkpointsService.saveLatestCheckpoint(
+        range.to,
+        range.from,
+        QueryType.FETCH_UNSTAKING,
+        true,
+      );
+      throw error;
+    }
   }
 
-  private createBatches(fromBlock: number, toBlock: number): IBatch[] {
+  async executeFailedRangeQuery(
+    range: BlockRange,
+    checkpointId: string,
+  ): Promise<void> {
+    const allEvents: EventLog[] = [];
+    try {
+      const batches = this.createBatches(range.from, range.to);
+      const promises = batches.map((batch) => {
+        return this.web3Service.fetchUnstaking(batch.from, batch.to);
+      });
+
+      const batchResults = await Promise.all(promises);
+      const events = batchResults.flat() as EventLog[];
+      allEvents.push(...events);
+
+      await this.logEvents(allEvents);
+      await this.checkpointsService.update(checkpointId, {
+        isFailed: false,
+      });
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  createBatches(fromBlock: number, toBlock: number): IBatch[] {
     const maxBlockRange = this.web3Config?.maxQueryBlockRange || 10000;
     const batches: IBatch[] = [];
 
@@ -203,18 +312,35 @@ export class UnstakingFetchService implements OnModuleInit {
 
     this.logger.log(`Processing ${events.length} unstaking events`);
 
-    for (const event of events) {
-      try {
-        await this.processUnstakingEvent(event);
-      } catch (error) {
-        throw error;
-      }
+    const batches = this.splitEventProcess(events);
+
+    for (const batch of batches) {
+      const promises = batch.map((event) => {
+        return this.processUnstakingEvent(event);
+      });
+
+      await Promise.all(promises);
+
+      await this.delay(MILLI_SECS_PER_SEC);
     }
 
     this.logger.log('Finished processing unstaking events');
   }
 
-  private async processUnstakingEvent(event: EventLog): Promise<void> {
+  splitEventProcess(events: EventLog[]): EventLog[][] {
+    const maxProcessNumber = 10;
+
+    const batches: EventLog[][] = [];
+
+    for (let i = 0; i < events.length; i += maxProcessNumber) {
+      const maxItem = Math.min(i + maxProcessNumber, events.length);
+      batches.push(events.slice(i, maxItem));
+    }
+
+    return batches;
+  }
+
+  async processUnstakingEvent(event: EventLog): Promise<void> {
     const [walletAddress, amount] = event.args;
 
     if (!walletAddress || !amount) {
@@ -245,7 +371,7 @@ export class UnstakingFetchService implements OnModuleInit {
     await this.unstakingEventsService.create(unstakingEvent);
   }
 
-  private delay(ms: number): Promise<void> {
+  delay(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }

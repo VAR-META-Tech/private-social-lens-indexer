@@ -18,9 +18,7 @@ import { CheckpointsModule } from '../checkpoints/checkpoints.module';
       connection: {
         host: 'localhost',
         port: 6379,
-        retryDelayOnFailover: 100,
-        maxRetriesPerRequest: 3,
-        enableReadyCheck: false,
+        retryDelayOnFailover: 1000,
       },
     }),
     BullModule.registerQueue({
@@ -28,7 +26,6 @@ import { CheckpointsModule } from '../checkpoints/checkpoints.module';
       defaultJobOptions: {
         removeOnComplete: 100,
         removeOnFail: 50,
-        attempts: 3,
       },
     }),
     StakingEventsModule,

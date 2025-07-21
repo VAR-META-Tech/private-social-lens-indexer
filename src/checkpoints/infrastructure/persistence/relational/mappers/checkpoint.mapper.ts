@@ -7,9 +7,11 @@ export class CheckpointMapper {
     domainEntity.id = raw.id;
     domainEntity.createdAt = raw.createdAt;
     domainEntity.updatedAt = raw.updatedAt;
-    domainEntity.blockNumber = raw.blockNumber.toString();
+    domainEntity.toBlockNumber = raw.toBlockNumber.toString();
+    domainEntity.fromBlockNumber = raw.fromBlockNumber.toString();
     domainEntity.blockTimestamp = raw.blockTimestamp.toString();
     domainEntity.queryType = raw.queryType;
+    domainEntity.isFailed = raw.isFailed;
 
     return domainEntity;
   }
@@ -21,9 +23,11 @@ export class CheckpointMapper {
     }
     persistenceEntity.createdAt = domainEntity.createdAt;
     persistenceEntity.updatedAt = domainEntity.updatedAt;
-    persistenceEntity.blockNumber = Number(domainEntity.blockNumber);
+    persistenceEntity.toBlockNumber = Number(domainEntity.toBlockNumber);
+    persistenceEntity.fromBlockNumber = Number(domainEntity.fromBlockNumber);
     persistenceEntity.blockTimestamp = Number(domainEntity.blockTimestamp);
     persistenceEntity.queryType = domainEntity.queryType;
+    persistenceEntity.isFailed = domainEntity.isFailed;
 
     return persistenceEntity;
   }

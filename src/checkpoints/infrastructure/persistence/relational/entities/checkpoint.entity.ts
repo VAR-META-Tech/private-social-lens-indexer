@@ -18,7 +18,12 @@ export class CheckpointEntity extends EntityRelationalHelper {
   @Column({
     type: 'numeric',
   })
-  blockNumber: number;
+  toBlockNumber: number;
+
+  @Column({
+    type: 'numeric',
+  })
+  fromBlockNumber: number;
 
   @Column({
     type: 'numeric',
@@ -30,6 +35,11 @@ export class CheckpointEntity extends EntityRelationalHelper {
     enum: QueryType,
   })
   queryType: QueryType;
+
+  @Column({
+    type: 'boolean',
+  })
+  isFailed: boolean;
 
   @CreateDateColumn()
   createdAt: Date;

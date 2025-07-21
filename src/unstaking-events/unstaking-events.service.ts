@@ -13,6 +13,8 @@ import { IPaginationOptions } from '../utils/types/pagination-options';
 import { UnstakingEvent } from './domain/unstaking-event';
 import { UnstakingEventEntity } from './infrastructure/persistence/relational/entities/unstaking-event.entity';
 import { GetUnstakeInfoDto } from './dto/get-unstake-info.dto';
+import { getFromDate, getToDate } from '../utils/helper';
+import { MILLI_SECS_PER_SEC, SECS_PER_DAY } from '../utils/const';
 
 @Injectable()
 export class UnstakingEventsService {
@@ -26,15 +28,16 @@ export class UnstakingEventsService {
 
   async getTotalUnstakeAmount(query: GetUnstakeInfoDto): Promise<number> {
     try {
-      this.validateDateRange(query);
+      const fromDate = getFromDate(query.startDate);
+      const toDate = getToDate(query.endDate);
 
       const result = await this.dataSource
         .createQueryBuilder(UnstakingEventEntity, 'unstakingEvents')
         .where(
           'unstakingEvents.unstakeTime >= :startDate AND unstakingEvents.unstakeTime <= :endDate',
           {
-            startDate: query.startDate,
-            endDate: query.endDate,
+            startDate: fromDate,
+            endDate: toDate,
           },
         )
         .select(
@@ -61,15 +64,16 @@ export class UnstakingEventsService {
     query: GetUnstakeInfoDto,
   ): Promise<Array<{ wallet_address: string; unstake_amount: string }>> {
     try {
-      this.validateDateRange(query);
+      const fromDate = getFromDate(query.startDate);
+      const toDate = getToDate(query.endDate);
 
       const result = await this.dataSource
         .createQueryBuilder(UnstakingEventEntity, 'unstakingEvents')
         .where(
           'unstakingEvents.unstakeTime >= :startDate AND unstakingEvents.unstakeTime <= :endDate',
           {
-            startDate: query.startDate,
-            endDate: query.endDate,
+            startDate: fromDate,
+            endDate: toDate,
           },
         )
         .select([
@@ -94,19 +98,37 @@ export class UnstakingEventsService {
     }
   }
 
+  async getLatestUnstakeBlockNumberInRange(fromBlock: number, toBlock: number) {
+    const result = await this.dataSource
+      .createQueryBuilder(UnstakingEventEntity, 'unstakingEvents')
+      .where(
+        'unstakingEvents.blockNumber >= :fromBlock AND unstakingEvents.blockNumber <= :toBlock',
+        { fromBlock, toBlock },
+      )
+      .orderBy('unstakingEvents.blockNumber', 'DESC')
+      .getRawMany();
+
+    if (result.length === 0) {
+      return null;
+    }
+
+    return result[0].unstakingEvents_blockNumber;
+  }
+
   async getUnstakingMovement(
     query: GetUnstakeInfoDto,
   ): Promise<Array<{ unstakeamount: string; date: string }>> {
     try {
-      this.validateDateRange(query);
+      const fromDate = getFromDate(query.startDate);
+      const toDate = getToDate(query.endDate);
 
       const result = await this.dataSource
         .createQueryBuilder(UnstakingEventEntity, 'unstakingEvents')
         .where(
           'unstakingEvents.unstakeTime >= :startDate AND unstakingEvents.unstakeTime <= :endDate',
           {
-            startDate: query.startDate,
-            endDate: query.endDate,
+            startDate: fromDate,
+            endDate: toDate,
           },
         )
         .select([
@@ -119,7 +141,11 @@ export class UnstakingEventsService {
         .orderBy('date', 'ASC')
         .getRawMany();
 
-      const movementData = this.generateCompleteDateRange(query, result);
+      const movementData = this.generateCompleteDateRange(
+        fromDate,
+        toDate,
+        result,
+      );
 
       this.logger.log(
         `Generated unstaking movement data for period ${query.startDate}-${query.endDate}: ${movementData.length} days`,
@@ -302,62 +328,31 @@ export class UnstakingEventsService {
     }
   }
 
-  private validateDateRange(query: GetUnstakeInfoDto): void {
-    if (!query.startDate || !query.endDate) {
-      throw new BadRequestException('Start date and end date are required');
-    }
-
-    const startDate = Number(query.startDate);
-    const endDate = Number(query.endDate);
-
-    if (isNaN(startDate) || isNaN(endDate)) {
-      throw new BadRequestException('Invalid date format');
-    }
-
-    if (startDate > endDate) {
-      throw new BadRequestException(
-        'Start date must be before or equal to end date',
-      );
-    }
-
-    if (startDate < 0 || endDate < 0) {
-      throw new BadRequestException('Dates must be non-negative');
-    }
-  }
-
   private generateCompleteDateRange(
-    query: GetUnstakeInfoDto,
+    fromDate: number,
+    toDate: number,
     result: Array<{ unstakeamount: string; date: string }>,
   ): Array<{ unstakeamount: string; date: string }> {
-    // Create a map of existing unstakes by date
     const unstakesByDate: { [key: string]: string } = {};
     result.forEach((row) => {
       const dateKey = new Date(row.date).toISOString().split('T')[0];
       unstakesByDate[dateKey] = row.unstakeamount;
     });
-
-    // Generate all days in the range with mock data for missing days
     const finalResult: Array<{ unstakeamount: string; date: string }> = [];
-    const start = new Date(Number(query.startDate));
-    const end = new Date(Number(query.endDate));
-
     const daysDiff = Math.ceil(
-      (end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24),
+      (toDate - fromDate) / (MILLI_SECS_PER_SEC * SECS_PER_DAY),
     );
 
-    for (let i = 0; i <= daysDiff; i++) {
-      const currentDate = new Date(start);
-      currentDate.setDate(start.getDate() + i);
-
+    for (let i = 0; i < daysDiff; i++) {
+      const currentDate = new Date(fromDate);
+      currentDate.setDate(currentDate.getDate() + i);
       const dateKey = currentDate.toISOString().split('T')[0];
       const unstakeAmount = unstakesByDate[dateKey] || '0';
-
       finalResult.push({
         unstakeamount: unstakeAmount,
         date: currentDate.toISOString(),
       });
     }
-
     return finalResult;
   }
 }

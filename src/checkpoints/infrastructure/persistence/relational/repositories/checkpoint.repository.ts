@@ -55,11 +55,19 @@ export class CheckpointRelationalRepository implements CheckpointRepository {
 
   async findLatestCheckpoint(queryType: QueryType): Promise<Checkpoint | null> {
     const entities = await this.checkpointRepository.find({
-      where: { queryType },
-      order: { blockNumber: 'DESC' },
+      where: { queryType, isFailed: false },
+      order: { toBlockNumber: 'DESC' },
     });
 
     return entities.length > 0 ? CheckpointMapper.toDomain(entities[0]) : null;
+  }
+
+  async findFailedCheckpoints(queryType: QueryType): Promise<Checkpoint[]> {
+    const entities = await this.checkpointRepository.find({
+      where: { queryType, isFailed: true },
+    });
+
+    return entities.map((entity) => CheckpointMapper.toDomain(entity));
   }
 
   async update(

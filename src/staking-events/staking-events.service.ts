@@ -20,13 +20,13 @@ import {
   MILLI_SECS_PER_SEC,
   SECS_PER_DAY,
 } from '../utils/const';
+import { getFromDate, getToDate } from '../utils/helper';
 
 @Injectable()
 export class StakingEventsService {
   private readonly logger = new Logger(StakingEventsService.name);
 
   constructor(
-    // Dependencies here
     private readonly dataSource: DataSource,
     private readonly stakingEventsRepository: StakingEventsRepository,
     private readonly unstakingEventsService: UnstakingEventsService,
@@ -34,24 +34,25 @@ export class StakingEventsService {
 
   async getTotalStakeAmount(query: GetStakeInfoDto): Promise<number> {
     try {
-      this.validateDateRange(query);
+      const fromDate = getFromDate(query.startDate);
+      const toDate = getToDate(query.endDate);
+
       const result = await this.dataSource
         .createQueryBuilder(StakingEventEntity, 'stakingEvents')
         .where(
           'stakingEvents.startTime >= :startDate AND stakingEvents.startTime <= :endDate',
-          {
-            startDate: query.startDate,
-            endDate: query.endDate,
-          },
+          { startDate: fromDate, endDate: toDate },
         )
         .select(
           'COALESCE(SUM(CAST(stakingEvents.amount AS DECIMAL)), 0) as total_stake_amount',
         )
         .getRawOne();
+
       const totalAmount = Number(result?.total_stake_amount || 0);
       this.logger.log(
         `Total stake amount for period ${query.startDate}-${query.endDate}: ${totalAmount}`,
       );
+
       return totalAmount;
     } catch (error) {
       this.logger.error('Failed to get total stake amount', error);
@@ -63,11 +64,12 @@ export class StakingEventsService {
 
   async getTokenFlowInfo(query: GetStakeInfoDto) {
     try {
-      this.validateDateRange(query);
       const { startDate, endDate } = query;
+      const fromDate = getFromDate(startDate);
+      const toDate = getToDate(endDate);
+
       const totalDayCount = Math.ceil(
-        (Number(endDate) - Number(startDate)) /
-          (MILLI_SECS_PER_SEC * SECS_PER_DAY),
+        (toDate - fromDate) / (MILLI_SECS_PER_SEC * SECS_PER_DAY),
       );
       const totalWeekCount = Math.ceil(totalDayCount / DAYS_PER_WEEK);
       const totalStakeAmount = await this.getTotalStakeAmount({
@@ -84,9 +86,11 @@ export class StakingEventsService {
         totalDayCount > 0 ? netFlow.div(totalDayCount) : new Big(0);
       const weeklyNetFlow =
         totalWeekCount > 0 ? netFlow.div(totalWeekCount) : new Big(0);
+
       this.logger.log(
         `Token flow info for period ${startDate}-${endDate}: netFlow=${netFlow.toString()}, dailyNetFlow=${dailyNetFlow.toString()}, weeklyNetFlow=${weeklyNetFlow.toString()}`,
       );
+
       return {
         totalStakeAmount: String(totalStakeAmount),
         totalUnstakeAmount: String(totalUnstakeAmount),
@@ -106,16 +110,15 @@ export class StakingEventsService {
     query: GetStakeInfoDto,
   ): Promise<Array<{ wallet_address: string; stake_amount: string }>> {
     try {
-      this.validateDateRange(query);
       const { startDate, endDate } = query;
+      const fromDate = getFromDate(startDate);
+      const toDate = getToDate(endDate);
+
       const result = await this.dataSource
         .createQueryBuilder(StakingEventEntity, 'stakingEvents')
         .where(
           'stakingEvents.startTime >= :startDate AND stakingEvents.startTime <= :endDate',
-          {
-            startDate,
-            endDate,
-          },
+          { startDate: fromDate, endDate: toDate },
         )
         .select([
           'stakingEvents.walletAddress as wallet_address',
@@ -125,9 +128,11 @@ export class StakingEventsService {
         .orderBy('stake_amount', 'DESC')
         .limit(5)
         .getRawMany();
+
       this.logger.log(
         `Retrieved top 5 stakers for period ${startDate}-${endDate}: ${result.length} records`,
       );
+
       return result;
     } catch (error) {
       this.logger.error('Failed to get top 5 stakers', error);
@@ -139,16 +144,15 @@ export class StakingEventsService {
     query: GetStakeInfoDto,
   ): Promise<{ tokenVelocity: string }> {
     try {
-      this.validateDateRange(query);
       const { startDate, endDate } = query;
+      const fromDate = getFromDate(startDate);
+      const toDate = getToDate(endDate);
+
       const result = await this.dataSource
         .createQueryBuilder(StakingEventEntity, 'stakingEvents')
         .where(
           'stakingEvents.startTime >= :startDate AND stakingEvents.startTime <= :endDate',
-          {
-            startDate,
-            endDate,
-          },
+          { startDate: fromDate, endDate: toDate },
         )
         .andWhere('stakingEvents.hasWithdrawal = true')
         .andWhere('stakingEvents.withdrawalTime > stakingEvents.startTime')
@@ -158,9 +162,11 @@ export class StakingEventsService {
           '(SUM(stakingEvents.withdrawalTime / CAST(:milliPerSec AS NUMERIC)) - SUM(stakingEvents.startTime / CAST(:milliPerSec AS NUMERIC))) / CAST(:secondsInDay AS NUMERIC) as average_hold_duration_days',
         )
         .getRawOne();
+
       this.logger.log(
         `Token velocity for period ${startDate}-${endDate}: ${result?.average_hold_duration_days || 0}`,
       );
+
       return {
         tokenVelocity: result?.average_hold_duration_days || '0',
       };
@@ -176,16 +182,15 @@ export class StakingEventsService {
     query: GetStakeInfoDto,
   ): Promise<Array<{ stakeamount: string; date: string }>> {
     try {
-      this.validateDateRange(query);
       const { startDate, endDate } = query;
+      const fromDate = getFromDate(startDate);
+      const toDate = getToDate(endDate);
+
       const result = await this.dataSource
         .createQueryBuilder(StakingEventEntity, 'stakingEvents')
         .where(
           'stakingEvents.startTime >= :startDate AND stakingEvents.startTime <= :endDate',
-          {
-            startDate,
-            endDate,
-          },
+          { startDate: fromDate, endDate: toDate },
         )
         .select([
           'SUM(CAST(stakingEvents.amount AS DECIMAL)) as stakeamount',
@@ -196,7 +201,13 @@ export class StakingEventsService {
         )
         .orderBy('date', 'ASC')
         .getRawMany();
-      const movementData = this.generateCompleteDateRange(query, result);
+
+      const movementData = this.generateCompleteDateRange(
+        fromDate,
+        toDate,
+        result,
+      );
+
       this.logger.log(
         `Generated staking movement data for period ${startDate}-${endDate}: ${movementData.length} days`,
       );
@@ -373,50 +384,50 @@ export class StakingEventsService {
     }
   }
 
-  private validateDateRange(query: GetStakeInfoDto): void {
-    if (!query.startDate || !query.endDate) {
-      throw new BadRequestException('Start date and end date are required');
+  async getLatestStakeBlockNumberInRange(fromBlock: number, toBlock: number) {
+    const result = await this.dataSource
+      .createQueryBuilder(StakingEventEntity, 'stakingEvents')
+      .where(
+        'stakingEvents.blockNumber >= :fromBlock AND stakingEvents.blockNumber <= :toBlock',
+        { fromBlock, toBlock },
+      )
+      .orderBy('stakingEvents.blockNumber', 'DESC')
+      .getRawMany();
+
+    if (result.length === 0) {
+      return null;
     }
-    const startDate = Number(query.startDate);
-    const endDate = Number(query.endDate);
-    if (isNaN(startDate) || isNaN(endDate)) {
-      throw new BadRequestException('Invalid date format');
-    }
-    if (startDate > endDate) {
-      throw new BadRequestException(
-        'Start date must be before or equal to end date',
-      );
-    }
-    if (startDate < 0 || endDate < 0) {
-      throw new BadRequestException('Dates must be non-negative');
-    }
+
+    return result[0].stakingEvents_blockNumber;
   }
 
   private generateCompleteDateRange(
-    query: GetStakeInfoDto,
+    fromDate: number,
+    toDate: number,
     result: Array<{ stakeamount: string; date: string }>,
   ): Array<{ stakeamount: string; date: string }> {
-    const stakesByDate: { [key: string]: string } = {};
-    result.forEach((row) => {
-      const dateKey = new Date(row.date).toISOString().split('T')[0];
-      stakesByDate[dateKey] = row.stakeamount;
-    });
-    const finalResult: Array<{ stakeamount: string; date: string }> = [];
-    const start = new Date(Number(query.startDate));
-    const end = new Date(Number(query.endDate));
-    const daysDiff = Math.ceil(
-      (end.getTime() - start.getTime()) / (MILLI_SECS_PER_SEC * SECS_PER_DAY),
+    const stakesByDate = result.reduce(
+      (acc, row) => {
+        const dateKey = new Date(row.date).toISOString().split('T')[0];
+        acc[dateKey] = row.stakeamount;
+        return acc;
+      },
+      {} as { [key: string]: string },
     );
-    for (let i = 0; i <= daysDiff; i++) {
-      const currentDate = new Date(start);
-      currentDate.setDate(start.getDate() + i);
+
+    const daysDiff = Math.ceil(
+      (toDate - fromDate) / (MILLI_SECS_PER_SEC * SECS_PER_DAY),
+    );
+
+    return Array.from({ length: daysDiff }, (_, i) => {
+      const currentDate = new Date(fromDate);
+      currentDate.setDate(currentDate.getDate() + i);
       const dateKey = currentDate.toISOString().split('T')[0];
-      const stakeAmount = stakesByDate[dateKey] || '0';
-      finalResult.push({
-        stakeamount: stakeAmount,
+
+      return {
+        stakeamount: stakesByDate[dateKey] || '0',
         date: currentDate.toISOString(),
-      });
-    }
-    return finalResult;
+      };
+    });
   }
 }
