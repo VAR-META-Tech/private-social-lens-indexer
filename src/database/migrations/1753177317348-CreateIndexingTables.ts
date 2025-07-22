@@ -5,6 +5,10 @@ export class CreateIndexingTables1753177317348 implements MigrationInterface {
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(
+      `CREATE TYPE "public"."checkpoint_querytype_enum" AS ENUM('fetch-staking', 'fetch-unstaking', 'fetch-request-reward', 'refresh-failed-staking', 'refresh-failed-unstaking', 'refresh-failed-request-reward')`,
+    );
+
+    await queryRunner.query(
       `CREATE TABLE "unstaking_events" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "txHash" character varying NOT NULL, "walletAddress" character varying NOT NULL, "amount" numeric NOT NULL, "blockNumber" numeric NOT NULL, "unstakeTime" numeric NOT NULL, "createdAt" TIMESTAMP NOT NULL DEFAULT now(), "updatedAt" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "UQ_b65e628ee4b7ebf6b488f1a6ea4" UNIQUE ("txHash"), CONSTRAINT "PK_9accc685bbef2a834f0853102a1" PRIMARY KEY ("id"))`,
     );
     await queryRunner.query(
@@ -19,6 +23,8 @@ export class CreateIndexingTables1753177317348 implements MigrationInterface {
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
+    await queryRunner.query(`DROP TYPE "public"."checkpoint_querytype_enum"`);
+
     await queryRunner.query(`DROP TABLE "checkpoint"`);
     await queryRunner.query(`DROP TABLE "request_reward"`);
     await queryRunner.query(`DROP TABLE "staking_events"`);
