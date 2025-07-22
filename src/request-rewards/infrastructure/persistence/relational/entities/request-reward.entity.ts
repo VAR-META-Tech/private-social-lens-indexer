@@ -29,7 +29,7 @@ export class RequestRewardEntity extends EntityRelationalHelper {
   @Column({ type: 'numeric' })
   proofIndex: string;
 
-  @Column()
+  @Column({ unique: true })
   txHash: string;
 
   @Column({ type: 'numeric' })
