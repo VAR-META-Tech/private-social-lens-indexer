@@ -19,10 +19,11 @@ export class UnstakingEventRelationalRepository
 
   async create(data: UnstakingEvent): Promise<UnstakingEvent> {
     const persistenceModel = UnstakingEventMapper.toPersistence(data);
-    const newEntity = await this.unstakingEventsRepository.save(
-      this.unstakingEventsRepository.create(persistenceModel),
+    const newEntity = await this.unstakingEventsRepository.upsert(
+      persistenceModel,
+      ['txHash'],
     );
-    return UnstakingEventMapper.toDomain(newEntity);
+    return UnstakingEventMapper.toDomain(newEntity.raw[0]);
   }
 
   async findAllWithPagination({

@@ -19,10 +19,11 @@ export class RequestRewardRelationalRepository
 
   async create(data: RequestReward): Promise<RequestReward> {
     const persistenceModel = RequestRewardMapper.toPersistence(data);
-    const newEntity = await this.requestRewardRepository.save(
-      this.requestRewardRepository.create(persistenceModel),
+    const newEntity = await this.requestRewardRepository.upsert(
+      persistenceModel,
+      ['txHash'],
     );
-    return RequestRewardMapper.toDomain(newEntity);
+    return RequestRewardMapper.toDomain(newEntity.raw[0]);
   }
 
   async findAllWithPagination({

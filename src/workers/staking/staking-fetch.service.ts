@@ -16,8 +16,8 @@ import { StakingEventsService } from '../../staking-events/staking-events.servic
 import {
   CRON_DURATION,
   MILLI_SECS_PER_SEC,
+  ONE_DAY_BLOCK_RANGE,
   ONE_MONTH_BLOCK_RANGE,
-  ONE_WEEK_BLOCK_RANGE,
   WORKER_MODE,
 } from '../../utils/const';
 import { BlockRange, IBatch } from '../../utils/types/common.type';
@@ -180,7 +180,7 @@ export class StakingFetchService implements OnModuleInit {
       const splitRanges = this.splitIntoRanges(
         fromBlock,
         toBlock,
-        ONE_WEEK_BLOCK_RANGE,
+        ONE_DAY_BLOCK_RANGE,
       );
       await this.queryRanges(splitRanges, QueryType.FETCH_STAKING);
     } catch (error) {
@@ -346,32 +346,11 @@ export class StakingFetchService implements OnModuleInit {
 
     this.logger.log(`Processing ${events.length} staking events`);
 
-    const batches = this.splitEventProcess(events);
-
-    for (const batch of batches) {
-      const promises = batch.map((event) => {
-        return this.processStakingEvent(event);
-      });
-
-      await Promise.all(promises);
-
-      await this.delay(MILLI_SECS_PER_SEC);
+    for (const event of events) {
+      await this.processStakingEvent(event);
     }
 
     this.logger.log('Finished processing staking events');
-  }
-
-  splitEventProcess(events: EventLog[]): EventLog[][] {
-    const maxProcessNumber = 10;
-
-    const batches: EventLog[][] = [];
-
-    for (let i = 0; i < events.length; i += maxProcessNumber) {
-      const maxItem = Math.min(i + maxProcessNumber, events.length);
-      batches.push(events.slice(i, maxItem));
-    }
-
-    return batches;
   }
 
   async processStakingEvent(event: EventLog): Promise<void> {

@@ -14,7 +14,7 @@ export class UnstakingEventEntity extends EntityRelationalHelper {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column()
+  @Column({ unique: true })
   txHash: string;
 
   @Column()
