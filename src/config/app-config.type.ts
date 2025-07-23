@@ -10,6 +10,11 @@ export interface IWeb3Config {
   workerMode: string;
 }
 
+export interface IWorkerConfig {
+  redisHost: string;
+  redisPort: number;
+}
+
 export type AppConfig = {
   nodeEnv: string;
   name: string;
@@ -21,4 +26,5 @@ export type AppConfig = {
   fallbackLanguage: string;
   headerLanguage: string;
   web3Config: IWeb3Config;
+  workerConfig: IWorkerConfig;
 };

@@ -57,7 +57,9 @@ GOOGLE_CLIENT_SECRET=
 
 APPLE_APP_AUDIENCE=[]
 
-WORKER_HOST=redis://redis:6379/1
+# WORKER_HOST=redis://redis:6379/1
+WORDER_BULLMQ_REDIS_HOST = localhost
+WORDER_BULLMQ_REDIS_PORT = 6379
 
 # =====Web3=====
 # mainnet
