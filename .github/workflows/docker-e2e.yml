@@ -76,7 +76,7 @@ jobs:
           echo "New tag: $NEW_TAG"
           
           # Clone the workload repo
-          git clone https://${{ secrets.GITLAB_TOKEN }}@gitlab.var-meta.com/foundation/infrastructure/workload-dev.git
+          git clone https://oauth2:${{ secrets.GITLAB_TOKEN }}@gitlab.var-meta.com/foundation/infrastructure/workload-dev.git
           cd workload-dev
           
           # Configure git
