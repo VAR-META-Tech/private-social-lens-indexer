@@ -27,4 +27,5 @@ export type AppConfig = {
   headerLanguage: string;
   web3Config: IWeb3Config;
   workerConfig: IWorkerConfig;
+  i18nWatchFiles: boolean;
 };

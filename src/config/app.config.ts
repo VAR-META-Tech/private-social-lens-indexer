@@ -79,6 +79,10 @@ class EnvironmentVariablesValidator {
   @IsString()
   @IsOptional()
   WORKER_MODE: string;
+
+  @IsOptional()
+  @IsString()
+  APP_I18N_WATCH_FILES: string;
 }
 
 export default registerAs<AppConfig>('app', () => {
@@ -123,5 +127,8 @@ export default registerAs<AppConfig>('app', () => {
         ? parseInt(process.env.REDIS_PORT, 10)
         : 6379,
     },
+    i18nWatchFiles: process.env.APP_I18N_WATCH_FILES
+      ? process.env.APP_I18N_WATCH_FILES.toLowerCase() === 'true'
+      : false,
   };
 });
