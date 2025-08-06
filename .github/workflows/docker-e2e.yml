@@ -53,7 +53,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ secrets.HARBOR_REGISTRY }}/private-social-lens-indexer/api
+          images: ${{ secrets.HARBOR_REGISTRY }}/dfusion-vana/private-social-lens-indexer
           tags: |
             type=ref,event=branch
             type=sha
