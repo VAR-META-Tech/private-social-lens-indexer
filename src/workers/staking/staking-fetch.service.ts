@@ -17,7 +17,6 @@ import {
   CRON_DURATION,
   MILLI_SECS_PER_SEC,
   ONE_DAY_BLOCK_RANGE,
-  ONE_MONTH_BLOCK_RANGE,
   WORKER_MODE,
 } from '../../utils/const';
 import { BlockRange, IBatch } from '../../utils/types/common.type';
@@ -52,7 +51,7 @@ export class StakingFetchService implements OnModuleInit {
       return;
     }
 
-    await this.handleQueryBlocks();
+    await this.crawlBlocks();
   }
 
   @Cron(CRON_DURATION.EVERY_3_MINUTES)
@@ -64,40 +63,58 @@ export class StakingFetchService implements OnModuleInit {
       return;
     }
 
-    await this.handleQueryBlocks();
+    await this.listenEventLog();
   }
 
-  async handleQueryBlocks() {
+  async crawlBlocks() {
     await this.processFailedCheckpoints();
 
+    const startBlock = this.web3Config?.startBlock;
+    const endBlock = this.web3Config?.endBlock;
+
+    if (startBlock === undefined || endBlock === undefined) {
+      throw new Error('Start Block or End Block is not set');
+    }
+
+    if (startBlock > endBlock) {
+      this.logger.log('No new blocks to fetch, skipping');
+      return;
+    }
+
+    await this.fetchStakingEvents(startBlock, endBlock);
+  }
+
+  async listenEventLog() {
     const queryBlocks = {
       fromBlock: 0,
       toBlock: 0,
     };
 
+    const startBlock = this.web3Config?.startBlock;
+
+    if (startBlock === undefined) {
+      throw new Error('Start Block is not set');
+    }
+
     try {
       this.newestBlock = await this.web3Service.getCurrentBlock();
       this.logger.log(`Newest on chain block: ${this.newestBlock}`);
+
       const latestCheckpoint =
         await this.checkpointsService.findLatestCheckpoint(
           QueryType.FETCH_STAKING,
         );
 
-      if (!latestCheckpoint) {
+      const latestBlockNumber = Number(latestCheckpoint?.toBlockNumber || 0);
+
+      if (latestCheckpoint && latestBlockNumber >= startBlock) {
+        queryBlocks.fromBlock = latestBlockNumber + 1;
         this.logger.warn(
-          'No latest checkpoint found, start fetching from genesis`',
+          'start fetching from startBlock ' + latestBlockNumber + 1,
         );
-
-        const fetchFromMonthAgo = this.web3Config?.initDataDuration || 12; //month
-        let fromBlock =
-          this.newestBlock - fetchFromMonthAgo * ONE_MONTH_BLOCK_RANGE;
-        fromBlock = Math.max(fromBlock, 0);
-
-        queryBlocks.fromBlock = fromBlock;
         queryBlocks.toBlock = this.newestBlock;
       } else {
-        const latestBlockNumber = Number(latestCheckpoint.toBlockNumber);
-        queryBlocks.fromBlock = latestBlockNumber + 1;
+        queryBlocks.fromBlock = startBlock;
         queryBlocks.toBlock = this.newestBlock;
       }
 
@@ -204,7 +221,7 @@ export class StakingFetchService implements OnModuleInit {
   ): BlockRange[] {
     const ranges: BlockRange[] = [];
 
-    for (let current = fromBlock; current < toBlock; current += splitValue) {
+    for (let current = fromBlock; current <= toBlock; current += splitValue) {
       const rangeEnd = Math.min(current + splitValue - 1, toBlock);
       ranges.push({ from: current, to: rangeEnd });
     }
