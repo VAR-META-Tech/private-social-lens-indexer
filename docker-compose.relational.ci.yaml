@@ -28,3 +28,9 @@ services:
       dockerfile: relational.e2e.Dockerfile
     env_file:
       - env-example-relational
+    ports:
+      - ${APP_PORT}:${APP_PORT}
+    depends_on:
+      - postgres
+      - maildev
+      - redis

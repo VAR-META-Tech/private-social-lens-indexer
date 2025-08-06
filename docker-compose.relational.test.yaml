@@ -31,3 +31,5 @@ services:
     volumes:
       - ./src:/usr/src/app/src
       - ./test:/usr/src/app/test
+    ports:
+      - ${APP_PORT}:${APP_PORT}
