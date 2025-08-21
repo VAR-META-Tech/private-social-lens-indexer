@@ -8,7 +8,10 @@ import {
 import { JobRecoveryService } from './job-recovery.service';
 
 @ApiTags('Job Recovery')
-@Controller('job-recovery')
+@Controller({
+  path: 'job-recovery',
+  version: '1',
+})
 export class JobRecoveryController {
   private readonly logger = new Logger(JobRecoveryController.name);
 

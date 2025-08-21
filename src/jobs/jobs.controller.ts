@@ -3,7 +3,10 @@ import { JobsService } from './jobs.service';
 import { ApiBody, ApiTags, ApiOperation, ApiOkResponse } from '@nestjs/swagger';
 
 @ApiTags('Jobs')
-@Controller('api/jobs')
+@Controller({
+  path: 'jobs',
+  version: '1',
+})
 export class JobsController {
   constructor(private readonly jobsService: JobsService) {}
 
