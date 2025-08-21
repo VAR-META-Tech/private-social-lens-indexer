@@ -9,7 +9,7 @@ export class CreateJobsTable1753177317351 implements MigrationInterface {
     `);
 
     await queryRunner.query(`
-      CREATE TYPE "public"."job_status_enum" AS ENUM('PENDING', 'QUEUED', 'COMPLETED', 'FAILED')
+      CREATE TYPE "public"."job_status_enum" AS ENUM('PENDING', 'QUEUED', 'RUNNING', 'COMPLETED', 'FAILED')
     `);
 
     await queryRunner.query(`

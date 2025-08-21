@@ -30,10 +30,64 @@ export class JobRepository {
   async findFailedJobs(limit: number = 100): Promise<Job[]> {
     const entities = await this.repository.find({
       where: { status: JobStatus.FAILED },
-      order: { lastAttemptAt: 'ASC' },
+      order: { createdAt: 'DESC' },
       take: limit,
     });
     return entities.map(JobMapper.toDomain);
+  }
+
+  async findQueueJobs(limit: number = 100): Promise<Job[]> {
+    const entities = await this.repository.find({
+      where: { status: JobStatus.QUEUED },
+      order: { createdAt: 'DESC' },
+      take: limit,
+    });
+    return entities.map(JobMapper.toDomain);
+  }
+
+  async findCompletedJobs(limit: number = 100): Promise<Job[]> {
+    const entities = await this.repository.find({
+      where: { status: JobStatus.COMPLETED },
+      order: { completedAt: 'DESC' },
+      take: limit,
+    });
+    return entities.map(JobMapper.toDomain);
+  }
+
+  async findRunningJobs(limit: number = 100): Promise<Job[]> {
+    const entities = await this.repository.find({
+      where: { status: JobStatus.RUNNING },
+      order: { completedAt: 'DESC' },
+      take: limit,
+    });
+    return entities.map(JobMapper.toDomain);
+  }
+
+  async resetStuckJobsToPending(): Promise<{
+    runningReset: number;
+    queuedReset: number;
+  }> {
+    const [runningResult, queuedResult] = await Promise.all([
+      this.repository.update(
+        { status: JobStatus.RUNNING },
+        {
+          status: JobStatus.PENDING,
+          updatedAt: new Date(),
+        },
+      ),
+      this.repository.update(
+        { status: JobStatus.QUEUED },
+        {
+          status: JobStatus.PENDING,
+          updatedAt: new Date(),
+        },
+      ),
+    ]);
+
+    return {
+      runningReset: runningResult.affected || 0,
+      queuedReset: queuedResult.affected || 0,
+    };
   }
 
   async update(job: Job): Promise<Job> {

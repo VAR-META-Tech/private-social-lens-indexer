@@ -1,11 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { Processor, WorkerHost } from '@nestjs/bullmq';
-import { Job } from 'bullmq';
+import { InjectQueue, Processor, WorkerHost } from '@nestjs/bullmq';
+import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import { Job, Queue } from 'bullmq';
+import { JobEventType } from '../jobs/domain/job';
+import { JobRepository } from '../jobs/infrastructure/persistence/relational/repositories/job.repository';
+import { ReqRewardFetchService } from './contributor/req-reward-fetch.service';
 import { StakingFetchService } from './staking/staking-fetch.service';
 import { UnstakingFetchService } from './staking/unstaking-fetch.service';
-import { ReqRewardFetchService } from './contributor/req-reward-fetch.service';
-import { JobRepository } from '../jobs/infrastructure/persistence/relational/repositories/job.repository';
-import { JobEventType, JobStatus } from '../jobs/domain/job';
 
 export interface EventJob {
   taskId: string;
@@ -20,11 +20,10 @@ export interface EventJob {
   concurrency: 10,
   lockDuration: 180000,
   lockRenewTime: 120000,
-  stalledInterval: 180000,
-  maxStalledCount: 3,
+  stalledInterval: 30000,
 })
 @Injectable()
-export class WorkerService extends WorkerHost {
+export class WorkerService extends WorkerHost implements OnModuleDestroy {
   private readonly logger = new Logger(WorkerService.name);
 
   constructor(
@@ -32,8 +31,23 @@ export class WorkerService extends WorkerHost {
     private readonly unstakingFetchService: UnstakingFetchService,
     private readonly reqRewardFetchService: ReqRewardFetchService,
     private readonly jobRepository: JobRepository,
+    @InjectQueue('blockchain-index-event') private readonly queue: Queue,
   ) {
     super();
+  }
+
+  /**
+   * Cleanup method called when the module is being destroyed
+   * Clears all jobs from the queue and resets any RUNNING jobs back to PENDING
+   */
+  async onModuleDestroy(): Promise<void> {
+    try {
+      this.logger.log('🔄 Worker service shutting down, cleaning up jobs...');
+      await this.queue.close();
+      this.logger.log('✅ Worker service cleanup completed');
+    } catch (error) {
+      this.logger.error('❌ Error during worker service cleanup:', error);
+    }
   }
 
   /**
@@ -56,9 +70,12 @@ export class WorkerService extends WorkerHost {
         throw new Error(`Invalid event type: ${job.data.eventType}`);
       }
 
+      // Mark job as running
+      await this.markJobAsRunning(job.data.taskId);
+
       // Process job based on event type
       await this.processEventJobByEventType(job.data);
-      // throw new Error('failed');
+
       // update job to be completed
       await this.markJobAsCompleted(job.data.taskId);
 
@@ -127,6 +144,25 @@ export class WorkerService extends WorkerHost {
       throw error;
     }
   }
+
+  /**
+   * Mark job as running in database
+   */
+  private async markJobAsRunning(taskId: string): Promise<void> {
+    try {
+      const job = await this.jobRepository.findById(taskId);
+      if (job) {
+        job.markAsRunning();
+        await this.jobRepository.update(job);
+        this.logger.log(`🔄 Marked job ${taskId} as running`);
+      } else {
+        this.logger.warn(`⚠️ Job ${taskId} not found in database`);
+      }
+    } catch (error) {
+      this.logger.error(`❌ Error marking job ${taskId} as running:`, error);
+    }
+  }
+
   /**
    * Mark job as completed in database
    */
@@ -168,36 +204,6 @@ export class WorkerService extends WorkerHost {
         `❌ Error updating job ${jobData.taskId} failure status:`,
         dbError,
       );
-    }
-  }
-
-  /**
-   * Get worker statistics
-   */
-  async getWorkerStats(): Promise<{
-    totalJobs: number;
-    completedJobs: number;
-    failedJobs: number;
-    pendingJobs: number;
-  }> {
-    try {
-      const [completedJobs, failedJobs, pendingJobs] = await Promise.all([
-        this.jobRepository.countByStatus(JobStatus.COMPLETED),
-        this.jobRepository.countByStatus(JobStatus.FAILED),
-        this.jobRepository.countByStatus(JobStatus.PENDING),
-      ]);
-
-      const totalJobs = completedJobs + failedJobs + pendingJobs;
-
-      return {
-        totalJobs,
-        completedJobs,
-        failedJobs,
-        pendingJobs,
-      };
-    } catch (error) {
-      this.logger.error('Error getting worker stats:', error);
-      throw error;
     }
   }
 }

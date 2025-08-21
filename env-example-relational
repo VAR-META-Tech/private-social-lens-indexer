@@ -72,5 +72,5 @@ MAX_QUERY_BLOCK_RANGE=10000
 MAX_REQUESTS_PER_SEC=100
 #unit: sec
 # indexing all data from start block
-START_BLOCK=2830852 
+START_BLOCK=3327133 #default is 3 months ago
 

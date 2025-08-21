@@ -1,27 +1,14 @@
-import {
-  // common
-  Injectable,
-} from '@nestjs/common';
-import { ethers } from 'ethers';
+import { Injectable } from '@nestjs/common';
 import { CreateCheckpointDto } from './dto/create-checkpoint.dto';
 import { UpdateCheckpointDto } from './dto/update-checkpoint.dto';
 import { CheckpointRepository } from './infrastructure/persistence/checkpoint.repository';
 import { IPaginationOptions } from '../utils/types/pagination-options';
 import { Checkpoint } from './domain/checkpoint';
 import { JobEventType } from '../jobs/domain/job';
-import { Web3Service } from '../web3/web3.service';
 
 @Injectable()
 export class CheckpointsService {
-  private provider: ethers.Provider;
-
-  constructor(
-    // Dependencies here
-    private readonly checkpointRepository: CheckpointRepository,
-    private readonly web3Service: Web3Service,
-  ) {
-    this.provider = this.web3Service.getProvider();
-  }
+  constructor(private readonly checkpointRepository: CheckpointRepository) {}
 
   async create(createCheckpointDto: CreateCheckpointDto) {
     return this.checkpointRepository.create(createCheckpointDto);
@@ -33,6 +20,16 @@ export class CheckpointsService {
 
   async findOldestCheckpoint() {
     return this.checkpointRepository.findOldestCheckpoint();
+  }
+
+  async getOldestProcessedBlockNumber(): Promise<number | null> {
+    const oldestCheckpoint = await this.findOldestCheckpoint();
+    return oldestCheckpoint ? Number(oldestCheckpoint.fromBlockNumber) : null;
+  }
+
+  async getLatestProcessedBlockNumber(): Promise<number | null> {
+    const latestCheckpoint = await this.findLatestCheckpoint();
+    return latestCheckpoint ? Number(latestCheckpoint.toBlockNumber) : null;
   }
 
   async saveLatestCheckpoint(

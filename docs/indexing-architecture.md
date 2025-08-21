@@ -141,6 +141,24 @@ Response:
 }
 ```
 
+### Job Recovery Management
+```bash
+# Reset stuck jobs (RUNNING and QUEUED) to PENDING
+POST /v1/job-recovery/reset-stuck-jobs
+```
+
+Response:
+```json
+{
+  "message": "Job recovery completed successfully",
+  "runningReset": 3,
+  "queuedReset": 2,
+  "totalStuckJobs": 5
+}
+```
+
+**Note**: This is useful when the application restarts and there are jobs that were interrupted during processing.
+
 ## Configuration
 
 ### Environment Variables
@@ -178,6 +196,7 @@ Response:
 ### Job Status
 - `PENDING`: Job created, waiting to be queued
 - `QUEUED`: Job in BullMQ queue, waiting to be processed
+- `RUNNING`: Job currently being processed by a worker
 - `COMPLETED`: Job processed successfully
 - `FAILED`: Job failed (can be retried manually or automatically)
 

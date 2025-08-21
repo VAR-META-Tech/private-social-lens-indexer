@@ -6,6 +6,7 @@ export enum JobType {
 export enum JobStatus {
   PENDING = 'PENDING',
   QUEUED = 'QUEUED',
+  RUNNING = 'RUNNING',
   COMPLETED = 'COMPLETED',
   FAILED = 'FAILED',
 }
@@ -63,6 +64,12 @@ export class Job {
 
   markAsQueued(): void {
     this.status = JobStatus.QUEUED;
+    this.updatedAt = new Date();
+  }
+
+  markAsRunning(): void {
+    this.status = JobStatus.RUNNING;
+    this.lastAttemptAt = new Date();
     this.updatedAt = new Date();
   }
 

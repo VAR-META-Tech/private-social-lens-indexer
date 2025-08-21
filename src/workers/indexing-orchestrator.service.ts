@@ -93,10 +93,6 @@ export class IndexingOrchestratorService implements OnModuleInit {
     endBlock: number,
   ): Promise<void> {
     try {
-      this.logger.log(
-        `Starting crawling from block ${startBlock} to ${endBlock}`,
-      );
-
       // Check if we need to crawl (startBlock should be less than or equal to endBlock)
       if (startBlock > endBlock) {
         this.logger.log(
@@ -105,15 +101,25 @@ export class IndexingOrchestratorService implements OnModuleInit {
         return;
       }
 
-      await this.crawlBlockRange(startBlock, endBlock);
+      this.logger.log(
+        `Starting crawling from block ${startBlock} to ${endBlock}`,
+      );
+
+      await this.crawlBlockRange(startBlock, endBlock, JobType.CRAWL_CHUNK);
     } catch (error) {
       this.logger.error('Error starting CRAWL:', error);
     }
   }
 
   // CRAWL: Accepts a block range and breaks it into chunks
-  async crawlBlockRange(fromBlock: number, toBlock: number): Promise<void> {
-    this.logger.log(`Starting CRAWL for blocks ${fromBlock} to ${toBlock}`);
+  async crawlBlockRange(
+    fromBlock: number,
+    toBlock: number,
+    jobType: JobType,
+  ): Promise<string[]> {
+    this.logger.log(
+      `Starting ${jobType} for blocks ${fromBlock} to ${toBlock}`,
+    );
 
     // Use the same chunking logic as req-reward-fetch service
     const splitRanges = this.splitIntoRanges(
@@ -122,45 +128,52 @@ export class IndexingOrchestratorService implements OnModuleInit {
       ONE_DAY_BLOCK_RANGE,
     );
 
+    const jobIds: string[] = [];
+
     // Create jobs for each event type
     for (const range of splitRanges) {
       // Create job for REQUEST_REWARD events
       const requestRewardJob = Job.create(
-        JobType.CRAWL_CHUNK,
+        jobType,
         JobEventType.REQUEST_REWARD,
         range.from,
         range.to,
         this.dlpContractAddress,
       );
-      await this.jobRepository.create(requestRewardJob);
+      const reqRewardJob = await this.jobRepository.create(requestRewardJob);
+      jobIds.push(reqRewardJob.id);
 
       // Create job for STAKING events
       const stakingJob = Job.create(
-        JobType.CRAWL_CHUNK,
+        jobType,
         JobEventType.STAKING,
         range.from,
         range.to,
         this.stakingContractAddress,
       );
-      await this.jobRepository.create(stakingJob);
+      const stakeJob = await this.jobRepository.create(stakingJob);
+      jobIds.push(stakeJob.id);
 
       // Create job for UNSTAKING events
       const unstakingJob = Job.create(
-        JobType.CRAWL_CHUNK,
+        jobType,
         JobEventType.UNSTAKING,
         range.from,
         range.to,
         this.stakingContractAddress,
       );
-      await this.jobRepository.create(unstakingJob);
+      const unstakeJob = await this.jobRepository.create(unstakingJob);
+      jobIds.push(unstakeJob.id);
 
       this.logger.log(
-        `Created CRAWL jobs for blocks ${range.from}-${range.to} (REQUEST_REWARD, STAKING, UNSTAKING)`,
+        `Created jobs for blocks ${range.from}-${range.to} (REQUEST_REWARD, STAKING, UNSTAKING)`,
       );
     }
 
     // Create checkpoints for job creation
     await this.createJobCreationCheckpoints(fromBlock, toBlock);
+
+    return jobIds;
   }
 
   // LISTEN: Check for new blocks and create jobs
@@ -191,52 +204,7 @@ export class IndexingOrchestratorService implements OnModuleInit {
 
       this.logger.log(`Listening from block ${startBlock} to ${endBlock}`);
 
-      // Use the same chunking logic as req-reward-fetch service
-      const splitRanges = this.splitIntoRanges(
-        startBlock,
-        endBlock,
-        ONE_DAY_BLOCK_RANGE,
-      );
-
-      // Create jobs for each event type
-      for (const range of splitRanges) {
-        // Create job for REQUEST_REWARD events
-        const requestRewardJob = Job.create(
-          JobType.LISTEN_CHUNK,
-          JobEventType.REQUEST_REWARD,
-          range.from,
-          range.to,
-          this.dlpContractAddress,
-        );
-        await this.jobRepository.create(requestRewardJob);
-
-        // Create job for STAKING events
-        const stakingJob = Job.create(
-          JobType.LISTEN_CHUNK,
-          JobEventType.STAKING,
-          range.from,
-          range.to,
-          this.stakingContractAddress,
-        );
-        await this.jobRepository.create(stakingJob);
-
-        // Create job for UNSTAKING events
-        const unstakingJob = Job.create(
-          JobType.LISTEN_CHUNK,
-          JobEventType.UNSTAKING,
-          range.from,
-          range.to,
-          this.stakingContractAddress,
-        );
-        await this.jobRepository.create(unstakingJob);
-
-        this.logger.log(
-          `Created LISTEN jobs for blocks ${range.from}-${range.to} (REQUEST_REWARD, STAKING, UNSTAKING)`,
-        );
-      }
-
-      // Create checkpoints for job creation
-      await this.createJobCreationCheckpoints(startBlock, endBlock);
+      await this.crawlBlockRange(startBlock, endBlock, JobType.LISTEN_CHUNK);
     } catch (error) {
       this.logger.error('Error in listenForNewBlocks:', error);
     }
@@ -284,8 +252,8 @@ export class IndexingOrchestratorService implements OnModuleInit {
   @Cron(CronExpression.EVERY_5_MINUTES)
   async retryFailedJobs(): Promise<void> {
     try {
-      // retry jobs of which the last attempt was more than 6 minutes ago
-      const failedJobs = await this.jobRepository.findOldFailedJobs(6);
+      // retry jobs of which the last attempt was more than 5 minutes ago
+      const failedJobs = await this.jobRepository.findOldFailedJobs(5);
 
       for (const job of failedJobs) {
         if (job.canRetry()) {
@@ -423,47 +391,5 @@ export class IndexingOrchestratorService implements OnModuleInit {
     } catch (error) {
       this.logger.error('Error creating job creation checkpoints:', error);
     }
-  }
-
-  /**
-   * Get all failed jobs
-   */
-  async getFailedJobs(limit: number = 100): Promise<Job[]> {
-    return this.jobRepository.findFailedJobs(limit);
-  }
-
-  /**
-   * Retry specific failed jobs by their IDs
-   */
-  async retryFailedJobsByIds(jobIds: string[]): Promise<{
-    retried: string[];
-    skipped: string[];
-    notFound: string[];
-  }> {
-    const retried: string[] = [];
-    const skipped: string[] = [];
-    const notFound: string[] = [];
-
-    for (const jobId of jobIds) {
-      const job = await this.jobRepository.findById(jobId);
-
-      if (!job) {
-        notFound.push(jobId);
-        continue;
-      }
-
-      if (job.status !== JobStatus.FAILED) {
-        skipped.push(jobId);
-        continue;
-      }
-
-      // For manual retries, we don't check maxAttempts - allow retry regardless
-      job.resetForRetry();
-      await this.jobRepository.update(job);
-      retried.push(jobId);
-      this.logger.log(`Reset failed job ${jobId} for manual retry`);
-    }
-
-    return { retried, skipped, notFound };
   }
 }

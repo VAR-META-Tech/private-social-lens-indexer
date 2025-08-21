@@ -18,6 +18,8 @@ import { JobsModule } from '../jobs/jobs.module';
 import { IndexingOrchestratorService } from './indexing-orchestrator.service';
 import { IndexingOrchestratorController } from './indexing-orchestrator.controller';
 import { WorkerController } from './worker.controller';
+import { JobRecoveryService } from './job-recovery.service';
+import { JobRecoveryController } from './job-recovery.controller';
 
 @Module({
   imports: [
@@ -51,7 +53,11 @@ import { WorkerController } from './worker.controller';
     CheckpointsModule,
     JobsModule,
   ],
-  controllers: [IndexingOrchestratorController, WorkerController],
+  controllers: [
+    IndexingOrchestratorController,
+    WorkerController,
+    JobRecoveryController,
+  ],
   providers: [
     Web3Service,
     StakingFetchService,
@@ -59,6 +65,7 @@ import { WorkerController } from './worker.controller';
     ReqRewardFetchService,
     WorkerService,
     IndexingOrchestratorService,
+    JobRecoveryService,
   ],
   exports: [WorkerService, IndexingOrchestratorService],
 })

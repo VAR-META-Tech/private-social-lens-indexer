@@ -23,6 +23,18 @@ export class JobsService {
     return this.jobRepository.findFailedJobs(limit);
   }
 
+  async getQueueJobs(limit: number = 100): Promise<Job[]> {
+    return this.jobRepository.findQueueJobs(limit);
+  }
+
+  async getCompletedJobs(limit: number = 100): Promise<Job[]> {
+    return this.jobRepository.findCompletedJobs(limit);
+  }
+
+  async getRunningJobs(limit: number = 100): Promise<Job[]> {
+    return this.jobRepository.findRunningJobs(limit);
+  }
+
   async getJobById(id: string): Promise<Job | null> {
     return this.jobRepository.findById(id);
   }
@@ -40,27 +52,62 @@ export class JobsService {
     queued: number;
     completed: number;
     failed: number;
+    running: number;
   }> {
-    const [pending, queued, completed, failed] = await Promise.all([
+    const [pending, queued, completed, failed, running] = await Promise.all([
       this.jobRepository.countByStatus(JobStatus.PENDING),
       this.jobRepository.countByStatus(JobStatus.QUEUED),
       this.jobRepository.countByStatus(JobStatus.COMPLETED),
       this.jobRepository.countByStatus(JobStatus.FAILED),
+      this.jobRepository.countByStatus(JobStatus.RUNNING),
     ]);
 
-    return { pending, queued, completed, failed };
+    return { pending, queued, completed, failed, running };
   }
 
-  async retryFailedJobs(olderThanMinutes: number = 5): Promise<void> {
-    const failedJobs =
-      await this.jobRepository.findOldFailedJobs(olderThanMinutes);
+  async retryJobsByIds(jobIds: string[]): Promise<{
+    retried: string[];
+    skipped: string[];
+    notFound: string[];
+    message: string;
+  }> {
+    const retried: string[] = [];
+    const skipped: string[] = [];
+    const notFound: string[] = [];
 
-    for (const job of failedJobs) {
-      if (job.canRetry()) {
+    for (const jobId of jobIds) {
+      try {
+        const job = await this.jobRepository.findById(jobId);
+
+        if (!job) {
+          notFound.push(jobId);
+          this.logger.warn(`Job ${jobId} not found`);
+          continue;
+        }
+
+        if (job.status !== JobStatus.FAILED) {
+          skipped.push(jobId);
+          this.logger.warn(
+            `Job ${jobId} is not in FAILED status (current: ${job.status})`,
+          );
+          continue;
+        }
+
         job.resetForRetry();
         await this.jobRepository.update(job);
-        this.logger.log(`Reset failed job ${job.id} for retry`);
+        retried.push(jobId);
+        this.logger.log(`Reset failed job ${jobId} for retry`);
+      } catch (error) {
+        this.logger.error(`Error retrying job ${jobId}:`, error);
+        skipped.push(jobId);
       }
     }
+
+    return {
+      retried,
+      skipped,
+      notFound,
+      message: `Retry operation completed. Retried: ${retried.length}, Skipped: ${skipped.length}, Not Found: ${notFound.length}`,
+    };
   }
 }
