@@ -5,9 +5,7 @@ export interface IWeb3Config {
   stakingContractAddress: string;
   dlpContractAddress: string;
   tokenContractAddress: string;
-  workerMode: string;
   startBlock?: number;
-  endBlock?: number;
 }
 
 export interface IWorkerConfig {
