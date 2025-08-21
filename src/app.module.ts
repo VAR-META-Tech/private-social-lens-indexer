@@ -23,7 +23,12 @@ import { MailerModule } from './mailer/mailer.module';
 import { WorkerModule } from './workers/worker.module';
 import { StakingEventsModule } from './staking-events/staking-events.module';
 import { UnstakingEventsModule } from './unstaking-events/unstaking-events.module';
+import { RequestRewardsModule } from './request-rewards/request-rewards.module';
+import { CheckpointsModule } from './checkpoints/checkpoints.module';
 import { ScheduleModule } from '@nestjs/schedule';
+import { BullModule } from '@nestjs/bullmq';
+
+import { JobsModule } from './jobs/jobs.module';
 
 const infrastructureDatabaseModule = TypeOrmModule.forRootAsync({
   useClass: TypeOrmConfigService,
@@ -49,6 +54,19 @@ const infrastructureDatabaseModule = TypeOrmModule.forRootAsync({
       envFilePath: ['.env'],
     }),
     infrastructureDatabaseModule,
+    BullModule.forRootAsync({
+      useFactory: (configService: ConfigService<AllConfigType>) => ({
+        connection: {
+          host: configService.get('app.workerConfig.redisHost', {
+            infer: true,
+          }),
+          port: configService.get('app.workerConfig.redisPort', {
+            infer: true,
+          }),
+        },
+      }),
+      inject: [ConfigService],
+    }),
     I18nModule.forRootAsync({
       useFactory: (configService: ConfigService<AllConfigType>) => ({
         fallbackLanguage: configService.getOrThrow('app.fallbackLanguage', {
@@ -85,6 +103,9 @@ const infrastructureDatabaseModule = TypeOrmModule.forRootAsync({
     HomeModule,
     StakingEventsModule,
     UnstakingEventsModule,
+    RequestRewardsModule,
+    CheckpointsModule,
+    JobsModule,
   ],
 })
 export class AppModule {}

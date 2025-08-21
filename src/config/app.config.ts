@@ -10,7 +10,7 @@ import {
   Max,
   Min,
 } from 'class-validator';
-import { WORKER_MODE } from '../utils/const';
+
 enum Environment {
   Development = 'development',
   Production = 'production',
@@ -72,10 +72,6 @@ class EnvironmentVariablesValidator {
   @IsOptional()
   RPC_URL: string;
 
-  @IsString()
-  @IsOptional()
-  WORKER_MODE: string;
-
   @IsOptional()
   @IsString()
   APP_I18N_WATCH_FILES: string;
@@ -112,10 +108,6 @@ export default registerAs<AppConfig>('app', () => {
       startBlock: process.env.START_BLOCK
         ? Number(process.env.START_BLOCK)
         : undefined,
-      endBlock: process.env.END_BLOCK
-        ? Number(process.env.END_BLOCK)
-        : undefined,
-      workerMode: process.env.WORKER_MODE || WORKER_MODE.CRAWL,
     },
     workerConfig: {
       redisHost: process.env.REDIS_HOST || 'localhost',
